@@ -19,7 +19,7 @@ ALGORITHM = os.getenv("ALGORITHM")
 app = FastAPI(title="Backend Profesora - Sistema de Recompensas Seguro")
 
 # 2. CONFIGURACIÓN DE CORS
-url_permitida = os.getenv("FRONTEND_URL", "http://localhost:5173")
+url_permitida = os.getenv("FRONTEND_URL", "https://classrewards-backend.vercel.app")
 
 app.add_middleware(
     CORSMiddleware,
