@@ -46,7 +46,7 @@ export default function Login({ onLoginExitoso }) {
           🍎
         </div>
         
-        <h1 style={{ color: '#1E293B', fontSize: '1.8rem', margin: '0 0 10px 0', fontWeight: '900' }}>ClassRewards</h1>
+        <h1 style={{ color: '#1E293B', fontSize: '1.8rem', margin: '0 0 10px 0', fontWeight: '900' }}>Gestion de clases</h1>
         <p style={{ color: '#64748B', marginBottom: '30px' }}>Inicia sesión para gestionar tu clase</p>
 
         <form onSubmit={manejarLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

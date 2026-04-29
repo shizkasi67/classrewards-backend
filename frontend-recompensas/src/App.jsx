@@ -58,7 +58,7 @@ export default function App() {
               🍎
             </div>
             <div>
-              <h1 style={{ fontSize: '1.2rem', margin: 0, fontWeight: '900', letterSpacing: '0.5px' }}>ClassRewards</h1>
+              <h1 style={{ fontSize: '1.2rem', margin: 0, fontWeight: '900', letterSpacing: '0.5px' }}>Gestion de clases</h1>
               <span style={{ fontSize: '0.8rem', color: '#94A3B8' }}>Panel de Control</span>
             </div>
           </div>
