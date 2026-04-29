@@ -5,12 +5,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
-import pyodbc
+import psycopg2 # <--- Nueva librería para PostgreSQL
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
-
-
 
 # 1. CARGAR VARIABLES SECRETAS
 load_dotenv()
@@ -25,7 +23,7 @@ url_permitida = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[url_permitida], # <--- Aquí está el candado. Adiós al "*"
+    allow_origins=[url_permitida],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -61,7 +59,7 @@ def verificar_token(credentials: HTTPAuthorizationCredentials = Depends(security
 # ==========================================
 def get_db_connection():
     try:
-        return pyodbc.connect(DB_CONNECTION_STRING)
+        return psycopg2.connect(DB_CONNECTION_STRING)
     except Exception as e:
         print(f"❌ Error conectando a BD: {str(e)}")
         raise HTTPException(status_code=500, detail="Error de conexión a la base de datos")
@@ -107,14 +105,14 @@ def login(req: LoginRequest):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Buscamos al profesor por su correo
-        cursor.execute("SELECT ProfesorID, Nombre, Contrasena FROM Profesores WHERE Correo = ?", req.correo)
+        # Cambiamos ? por %s y pasamos (req.correo,) como tupla
+        cursor.execute("SELECT ProfesorID, Nombre, Contrasena FROM Profesores WHERE Correo = %s", (req.correo,))
         profesor = cursor.fetchone()
         
         if not profesor:
             raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos")
             
-        hashed_password = profesor[2]
+        hashed_password = profesor[2] # Posición 2 es la contraseña
         
         # Verificamos matemáticamente la contraseña
         if not pwd_context.verify(req.contrasena, hashed_password):
@@ -131,6 +129,7 @@ def login(req: LoginRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        cursor.close()
         conn.close()
 
 # ==========================================
@@ -141,7 +140,9 @@ def obtener_cursos(usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT CursoID, NombreCurso, Seccion FROM Cursos")
-    cursos = [{"id": r.CursoID, "nombre": f"{r.NombreCurso} {r.Seccion if r.Seccion else ''}".strip()} for r in cursor.fetchall()]
+    # Lectura por índices: r[0]=ID, r[1]=Nombre, r[2]=Sección
+    cursos = [{"id": r[0], "nombre": f"{r[1]} {r[2] if r[2] else ''}".strip()} for r in cursor.fetchall()]
+    cursor.close()
     conn.close()
     return cursos
 
@@ -150,13 +151,14 @@ def crear_curso(req: NuevoCursoRequest, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO Cursos (NombreCurso, Seccion) VALUES (?, ?)", req.nombre, req.seccion)
+        cursor.execute("INSERT INTO Cursos (NombreCurso, Seccion) VALUES (%s, %s)", (req.nombre, req.seccion))
         conn.commit()
         return {"mensaje": "Curso creado"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail="Error al crear el curso")
     finally:
+        cursor.close()
         conn.close()
 
 # ==========================================
@@ -166,8 +168,9 @@ def crear_curso(req: NuevoCursoRequest, usuario = Depends(verificar_token)):
 def obtener_alumnos_por_curso(curso_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = ? ORDER BY Nombre", curso_id)
-    alumnos = [{"id": r.AlumnoID, "nombre": f"{r.Nombre} {r.Apellido}", "puntos": r.Puntos} for r in cursor.fetchall()]
+    cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = %s ORDER BY Nombre", (curso_id,))
+    alumnos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}", "puntos": r[3]} for r in cursor.fetchall()]
+    cursor.close()
     conn.close()
     return alumnos
 
@@ -176,13 +179,14 @@ def crear_alumno(req: NuevoAlumnoRequest, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO Alumnos (Nombre, Apellido, CursoID, Puntos) VALUES (?, ?, ?, 0)", req.nombre, req.apellido, req.curso_id)
+        cursor.execute("INSERT INTO Alumnos (Nombre, Apellido, CursoID, Puntos) VALUES (%s, %s, %s, 0)", (req.nombre, req.apellido, req.curso_id))
         conn.commit()
         return {"mensaje": "Alumno agregado"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail="Error al agregar alumno")
     finally:
+        cursor.close()
         conn.close()
 
 @app.delete("/alumnos/{alumno_id}")
@@ -190,14 +194,15 @@ def eliminar_alumno(alumno_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("DELETE FROM HistorialCanjes WHERE AlumnoID = ?", alumno_id)
-        cursor.execute("DELETE FROM Alumnos WHERE AlumnoID = ?", alumno_id)
+        cursor.execute("DELETE FROM HistorialCanjes WHERE AlumnoID = %s", (alumno_id,))
+        cursor.execute("DELETE FROM Alumnos WHERE AlumnoID = %s", (alumno_id,))
         conn.commit()
         return {"mensaje": "Alumno eliminado"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail="Error al eliminar alumno")
     finally:
+        cursor.close()
         conn.close()
 
 @app.post("/alumnos/modificar-puntos")
@@ -206,9 +211,9 @@ def modificar_puntos(req: ModificarPuntosRequest, usuario = Depends(verificar_to
     cursor = conn.cursor()
     try:
         if req.alumno_id:
-            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + ? WHERE AlumnoID = ? AND (Puntos + ?) >= 0", req.cantidad, req.alumno_id, req.cantidad)
+            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE AlumnoID = %s AND (Puntos + %s) >= 0", (req.cantidad, req.alumno_id, req.cantidad))
         elif req.curso_id:
-            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + ? WHERE CursoID = ? AND (Puntos + ?) >= 0", req.cantidad, req.curso_id, req.cantidad)
+            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE CursoID = %s AND (Puntos + %s) >= 0", (req.cantidad, req.curso_id, req.cantidad))
         else:
             raise HTTPException(status_code=400, detail="Faltan datos")
         conn.commit()
@@ -217,13 +222,14 @@ def modificar_puntos(req: ModificarPuntosRequest, usuario = Depends(verificar_to
         conn.rollback()
         raise HTTPException(status_code=400, detail="Error al actualizar")
     finally:
+        cursor.close()
         conn.close()
 
 @app.get("/alumnos/{alumno_id}/perfil")
 def obtener_perfil_alumno(alumno_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT Nombre, Apellido, Puntos FROM Alumnos WHERE AlumnoID = ?", alumno_id)
+    cursor.execute("SELECT Nombre, Apellido, Puntos FROM Alumnos WHERE AlumnoID = %s", (alumno_id,))
     alumno_row = cursor.fetchone()
     if not alumno_row:
         raise HTTPException(status_code=404, detail="No encontrado")
@@ -231,18 +237,19 @@ def obtener_perfil_alumno(alumno_id: int, usuario = Depends(verificar_token)):
     cursor.execute("""
         SELECT h.CanjeID, r.NombreRecompensa, h.FechaObtencion, h.FechaUso, h.EstadoCanje 
         FROM HistorialCanjes h JOIN Recompensas r ON h.RecompensaID = r.RecompensaID
-        WHERE h.AlumnoID = ? ORDER BY h.FechaObtencion DESC
-    """, alumno_id)
+        WHERE h.AlumnoID = %s ORDER BY h.FechaObtencion DESC
+    """, (alumno_id,))
     
     historial = [{
-        "canje_id": row.CanjeID, "recompensa": row.NombreRecompensa,
-        "fecha_obtencion": row.FechaObtencion.strftime("%Y-%m-%d %H:%M") if row.FechaObtencion else "Desconocida",
-        "fecha_uso": row.FechaUso.strftime("%Y-%m-%d %H:%M") if row.FechaUso else None,
-        "estado": row.EstadoCanje
+        "canje_id": row[0], "recompensa": row[1],
+        "fecha_obtencion": row[2].strftime("%Y-%m-%d %H:%M") if row[2] else "Desconocida",
+        "fecha_uso": row[3].strftime("%Y-%m-%d %H:%M") if row[3] else None,
+        "estado": row[4]
     } for row in cursor.fetchall()]
         
+    cursor.close()
     conn.close()
-    return {"nombre": f"{alumno_row.Nombre} {alumno_row.Apellido}", "puntos": alumno_row.Puntos, "historial": historial}
+    return {"nombre": f"{alumno_row[0]} {alumno_row[1]}", "puntos": alumno_row[2], "historial": historial}
 
 # ==========================================
 # 9. RUTAS: TIENDA Y RECOMPENSAS (Protegidas)
@@ -252,7 +259,8 @@ def obtener_recompensas(usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT RecompensaID, NombreRecompensa, CostoPuntos, Descripcion FROM Recompensas")
-    recompensas = [{"id": r.RecompensaID, "nombre": r.NombreRecompensa, "costo": r.CostoPuntos, "descripcion": r.Descripcion} for r in cursor.fetchall()]
+    recompensas = [{"id": r[0], "nombre": r[1], "costo": r[2], "descripcion": r[3]} for r in cursor.fetchall()]
+    cursor.close()
     conn.close()
     return recompensas
 
@@ -261,13 +269,14 @@ def crear_recompensa(req: NuevaRecompensaRequest, usuario = Depends(verificar_to
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO Recompensas (NombreRecompensa, CostoPuntos, Descripcion, ActivaParaClase) VALUES (?, ?, ?, 0)", req.nombre, req.costo, req.descripcion)
+        cursor.execute("INSERT INTO Recompensas (NombreRecompensa, CostoPuntos, Descripcion, ActivaParaClase) VALUES (%s, %s, %s, 0)", (req.nombre, req.costo, req.descripcion))
         conn.commit()
         return {"mensaje": "Recompensa creada"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail="Error al crear")
     finally:
+        cursor.close()
         conn.close()
 
 @app.delete("/recompensas/{recompensa_id}")
@@ -275,25 +284,27 @@ def eliminar_recompensa(recompensa_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("DELETE FROM HistorialCanjes WHERE RecompensaID = ?", recompensa_id)
-        cursor.execute("DELETE FROM Recompensas WHERE RecompensaID = ?", recompensa_id)
+        cursor.execute("DELETE FROM HistorialCanjes WHERE RecompensaID = %s", (recompensa_id,))
+        cursor.execute("DELETE FROM Recompensas WHERE RecompensaID = %s", (recompensa_id,))
         conn.commit()
         return {"mensaje": "Eliminada"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail="Error al eliminar")
     finally:
+        cursor.close()
         conn.close()
 
 @app.get("/tienda/recompensas/{recompensa_id}/elegibles")
 def alumnos_elegibles_para_recompensa(recompensa_id: int, curso_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT CostoPuntos FROM Recompensas WHERE RecompensaID = ?", recompensa_id)
+    cursor.execute("SELECT CostoPuntos FROM Recompensas WHERE RecompensaID = %s", (recompensa_id,))
     recompensa = cursor.fetchone()
     
-    cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = ? AND Puntos >= ?", curso_id, recompensa[0])
-    alumnos = [{"id": r.AlumnoID, "nombre": f"{r.Nombre} {r.Apellido}", "puntos": r.Puntos} for r in cursor.fetchall()]
+    cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = %s AND Puntos >= %s", (curso_id, recompensa[0]))
+    alumnos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}", "puntos": r[3]} for r in cursor.fetchall()]
+    cursor.close()
     conn.close()
     return alumnos
 
@@ -302,20 +313,22 @@ def comprar_recompensa(req: CompraRequest, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT CostoPuntos FROM Recompensas WHERE RecompensaID = ?", req.recompensa_id)
+        cursor.execute("SELECT CostoPuntos FROM Recompensas WHERE RecompensaID = %s", (req.recompensa_id,))
         costo = cursor.fetchone()[0]
 
-        cursor.execute("UPDATE Alumnos SET Puntos = Puntos - ? WHERE AlumnoID = ? AND Puntos >= ?", costo, req.alumno_id, costo)
+        cursor.execute("UPDATE Alumnos SET Puntos = Puntos - %s WHERE AlumnoID = %s AND Puntos >= %s", (costo, req.alumno_id, costo))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=400, detail="Puntos insuficientes")
 
-        cursor.execute("INSERT INTO HistorialCanjes (AlumnoID, RecompensaID, EstadoCanje, FechaObtencion) VALUES (?, ?, 'Disponible', GETDATE())", req.alumno_id, req.recompensa_id)
+        # CURRENT_TIMESTAMP en lugar de GETDATE()
+        cursor.execute("INSERT INTO HistorialCanjes (AlumnoID, RecompensaID, EstadoCanje, FechaObtencion) VALUES (%s, %s, 'Disponible', CURRENT_TIMESTAMP)", (req.alumno_id, req.recompensa_id))
         conn.commit()
         return {"mensaje": "Compra exitosa"}
     except Exception as e:
         if conn: conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        cursor.close()
         conn.close()
 
 @app.post("/canjes/{canje_id}/usar")
@@ -323,7 +336,8 @@ def usar_recompensa(canje_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("UPDATE HistorialCanjes SET EstadoCanje = 'Usado', FechaUso = GETDATE() WHERE CanjeID = ? AND EstadoCanje = 'Disponible'", canje_id)
+        # CURRENT_TIMESTAMP en lugar de GETDATE()
+        cursor.execute("UPDATE HistorialCanjes SET EstadoCanje = 'Usado', FechaUso = CURRENT_TIMESTAMP WHERE CanjeID = %s AND EstadoCanje = 'Disponible'", (canje_id,))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=400, detail="Premio ya usado")
         conn.commit()
@@ -332,6 +346,7 @@ def usar_recompensa(canje_id: int, usuario = Depends(verificar_token)):
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        cursor.close()
         conn.close()
 
 # ==========================================
@@ -342,7 +357,8 @@ def obtener_recompensas_clase(usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT RecompensaID, NombreRecompensa, Descripcion, CostoPuntos FROM Recompensas WHERE ActivaParaClase = 1")
-    recompensas = [{"id": r.RecompensaID, "nombre": r.NombreRecompensa, "costo": r.CostoPuntos, "descripcion": r.Descripcion} for r in cursor.fetchall()]
+    recompensas = [{"id": r[0], "nombre": r[1], "descripcion": r[2], "costo": r[3]} for r in cursor.fetchall()]
+    cursor.close()
     conn.close()
     return recompensas
 
@@ -353,15 +369,16 @@ def seleccionar_recompensas_clase(req: SeleccionRecompensasRequest, usuario = De
     try:
         cursor.execute("UPDATE Recompensas SET ActivaParaClase = 0")
         if req.ids:
-            placeholders = ','.join(['?'] * len(req.ids))
+            placeholders = ','.join(['%s'] * len(req.ids))
             query = f"UPDATE Recompensas SET ActivaParaClase = 1 WHERE RecompensaID IN ({placeholders})"
-            cursor.execute(query, req.ids)
+            cursor.execute(query, tuple(req.ids))
         conn.commit()
         return {"mensaje": "Premios actualizados"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        cursor.close()
         conn.close()
 
 @app.post("/recompensas/azar")
@@ -370,14 +387,16 @@ def recompensas_al_azar(usuario = Depends(verificar_token)):
     cursor = conn.cursor()
     try:
         cursor.execute("UPDATE Recompensas SET ActivaParaClase = 0")
-        cursor.execute("UPDATE Recompensas SET ActivaParaClase = 1 WHERE RecompensaID IN (SELECT TOP 3 RecompensaID FROM Recompensas ORDER BY NEWID())")
+        # Cambiamos TOP 3 y NEWID() por RANDOM() y LIMIT 3 de Postgres
+        cursor.execute("UPDATE Recompensas SET ActivaParaClase = 1 WHERE RecompensaID IN (SELECT RecompensaID FROM Recompensas ORDER BY RANDOM() LIMIT 3)")
         conn.commit()
         
         cursor.execute("SELECT RecompensaID, NombreRecompensa, Descripcion, CostoPuntos FROM Recompensas WHERE ActivaParaClase = 1")
-        recompensas = [{"id": r.RecompensaID, "nombre": r.NombreRecompensa, "costo": r.CostoPuntos, "descripcion": r.Descripcion} for r in cursor.fetchall()]
+        recompensas = [{"id": r[0], "nombre": r[1], "descripcion": r[2], "costo": r[3]} for r in cursor.fetchall()]
         return recompensas
     except Exception as e:
         if conn: conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        cursor.close()
         conn.close()
