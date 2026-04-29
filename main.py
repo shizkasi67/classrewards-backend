@@ -168,7 +168,7 @@ def crear_curso(req: NuevoCursoRequest, usuario = Depends(verificar_token)):
 def obtener_alumnos_por_curso(curso_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = %s ORDER BY Nombre", (curso_id,))
+    cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = %s ORDER BY Apellido ASC", (curso_id,))
     alumnos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}", "puntos": r[3]} for r in cursor.fetchall()]
     cursor.close()
     conn.close()
@@ -210,17 +210,25 @@ def modificar_puntos(req: ModificarPuntosRequest, usuario = Depends(verificar_to
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        motivo = "Ajuste de puntos"
         if req.alumno_id:
             cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE AlumnoID = %s AND (Puntos + %s) >= 0", (req.cantidad, req.alumno_id, req.cantidad))
+            # Insertar en historial
+            cursor.execute(
+                "INSERT INTO HistorialPuntos (AlumnoID, CursoID, Cantidad, Motivo) SELECT %s, CursoID, %s, %s FROM Alumnos WHERE AlumnoID = %s",
+                (req.alumno_id, req.cantidad, motivo, req.alumno_id)
+            )
         elif req.curso_id:
             cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE CursoID = %s AND (Puntos + %s) >= 0", (req.cantidad, req.curso_id, req.cantidad))
-        else:
-            raise HTTPException(status_code=400, detail="Faltan datos")
+            cursor.execute(
+                "INSERT INTO HistorialPuntos (CursoID, Cantidad, Motivo) VALUES (%s, %s, %s)",
+                (req.curso_id, req.cantidad, "Puntos otorgados a todo el curso")
+            )
         conn.commit()
-        return {"mensaje": "Puntos actualizados"}
+        return {"mensaje": "Puntos actualizados e historial registrado"}
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=400, detail="Error al actualizar")
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         cursor.close()
         conn.close()
