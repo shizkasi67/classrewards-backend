@@ -56,7 +56,7 @@ export default function Login({ onLoginExitoso }) {
               type="email" 
               value={correo} 
               onChange={(e) => setCorreo(e.target.value)} 
-              placeholder="astrid@colegio.com"
+              placeholder="colegio@correo.com"
               style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #E2E8F0', backgroundColor: '#F8FAFC', outline: 'none', fontSize: '1rem', boxSizing: 'border-box' }}
               required
             />
