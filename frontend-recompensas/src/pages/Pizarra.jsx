@@ -7,34 +7,31 @@ export default function Pizarra() {
   const [premiosPizarra, setPremiosPizarra] = useState([]);
   const [cursos, setCursos] = useState([]);
   const [cursoActual, setCursoActual] = useState('');
-  const [alumnos, setAlumnos] = useState([]);
   
   const [modoPresentacion, setModoPresentacion] = useState(false);
   const [seleccionados, setSeleccionados] = useState([]);
   const [animando, setAnimando] = useState(false);
 
-  // Cargar datos iniciales
-  const cargarDatos = async () => {
+  // Estados reutilizados de la Tienda para el Modal de Compra
+  const [recompensaActiva, setRecompensaActiva] = useState(null);
+  const [alumnosElegibles, setAlumnosElegibles] = useState([]);
+  const [cargandoElegibles, setCargandoElegibles] = useState(false);
+
+  const cargarDatosIniciales = async () => {
     try {
-      const [resCatalogo, resCursos] = await Promise.all([
+      const [resRec, resCur] = await Promise.all([
         api.get('/recompensas'),
         api.get('/cursos')
       ]);
-      setCatalogo(resCatalogo.data);
-      setCursos(resCursos.data);
-      if (resCursos.data.length > 0) setCursoActual(resCursos.data[0].id);
+      setCatalogo(resRec.data);
+      setCursos(resCur.data);
+      if (resCur.data.length > 0 && !cursoActual) setCursoActual(resCur.data[0].id);
     } catch (error) { console.error("Error al cargar datos", error); }
   };
 
-  useEffect(() => { cargarDatos(); }, []);
+  useEffect(() => { cargarDatosIniciales(); }, []);
 
-  // Cargar alumnos cuando cambia el curso
-  useEffect(() => {
-    if (cursoActual) {
-      api.get(`/cursos/${cursoActual}/alumnos`).then(res => setAlumnos(res.data));
-    }
-  }, [cursoActual]);
-
+  // --- LÓGICA DE SELECCIÓN ---
   const toggleSeleccion = (id) => {
     if (seleccionados.includes(id)) {
       setSeleccionados(seleccionados.filter(item => item !== id));
@@ -55,8 +52,10 @@ export default function Pizarra() {
       await api.post('/recompensas/clase/seleccionar', { ids: seleccionados });
       const res = await api.get('/recompensas/clase');
       setPremiosPizarra(res.data);
-      iniciarAnimacion();
-    } catch (error) { Swal.fire('Error', 'Problema al preparar los premios.', 'error'); }
+      setModoPresentacion(true);
+      setAnimando(true);
+      setTimeout(() => setAnimando(false), 800);
+    } catch (error) { Swal.fire('Error', 'No se pudo preparar la pizarra.', 'error'); }
   };
 
   const presentarAzar = async () => {
@@ -64,44 +63,43 @@ export default function Pizarra() {
       const res = await api.post('/recompensas/azar');
       setPremiosPizarra(res.data);
       setSeleccionados(res.data.map(p => p.id));
-      iniciarAnimacion();
-    } catch (error) { Swal.fire('Error', 'No se pudieron elegir premios al azar.', 'error'); }
+      setModoPresentacion(true);
+      setAnimando(true);
+      setTimeout(() => setAnimando(false), 800);
+    } catch (error) { Swal.fire('Error', 'Fallo al elegir premios al azar.', 'error'); }
   };
 
-  const iniciarAnimacion = () => {
-    setModoPresentacion(true);
-    setAnimando(true);
-    setTimeout(() => setAnimando(false), 800); 
+  // --- LÓGICA DE COMPRA REUTILIZADA DE LA TIENDA ---
+  const abrirInterfazCompra = async (recompensa) => {
+    setRecompensaActiva(recompensa);
+    setCargandoElegibles(true);
+    try { 
+      const res = await api.get(`/tienda/recompensas/${recompensa.id}/elegibles?curso_id=${cursoActual}`); 
+      setAlumnosElegibles(res.data); 
+    } catch (error) { console.error(error); } 
+    finally { setCargandoElegibles(false); }
   };
 
-  // --- NUEVA FUNCIÓN: COMPRA DESDE LA PIZARRA ---
-  const comprarPremio = async (premio) => {
-    if (!cursoActual) return;
-
-    const opcionesAlumnos = {};
-    alumnos.forEach(a => { opcionesAlumnos[a.id] = `${a.nombre} (${a.puntos} pts)`; });
-
-    const { value: idAlumno } = await Swal.fire({
-      title: `Canjear: ${premio.nombre}`,
-      text: `Costo: ${premio.costo} puntos`,
-      input: 'select',
-      inputOptions: opcionesAlumnos,
-      inputPlaceholder: 'Selecciona al estudiante',
+  const procesarCompra = async (alumnoId, nombreAlumno) => {
+    const result = await Swal.fire({
+      title: '¿Confirmar Canje?',
+      html: `¿Estás segura que <b>${nombreAlumno}</b> canjeará <b>"${recompensaActiva.nombre}"</b>?`,
+      icon: 'question',
       showCancelButton: true,
-      confirmButtonColor: '#6366F1',
-      confirmButtonText: '¡Comprar!',
+      confirmButtonColor: '#10B981',
+      cancelButtonColor: '#64748B',
+      confirmButtonText: 'Sí, comprar',
       cancelButtonText: 'Cancelar'
     });
 
-    if (idAlumno) {
+    if (result.isConfirmed) {
       try {
-        await api.post('/tienda/comprar', { alumno_id: parseInt(idAlumno), recompensa_id: premio.id });
-        Swal.fire({ title: '¡Éxito!', text: 'Premio canjeado correctamente', icon: 'success', timer: 1500, showConfirmButton: false });
-        // Recargamos alumnos para actualizar sus puntos
-        const resAlumnos = await api.get(`/cursos/${cursoActual}/alumnos`);
-        setAlumnos(resAlumnos.data);
-      } catch (err) {
-        Swal.fire('Error', 'Puntos insuficientes o error de conexión.', 'error');
+        await api.post('/tienda/comprar', { alumno_id: alumnoId, recompensa_id: recompensaActiva.id });
+        Swal.fire({ title: '¡Éxito!', text: 'Compra realizada.', icon: 'success', confirmButtonColor: '#6366F1', timer: 1500, showConfirmButton: false });
+        setRecompensaActiva(null);
+        // Recargar elegibles por si el mismo alumno quiere comprar otra cosa
+      } catch (error) { 
+        Swal.fire({ title: 'Error', text: 'No se pudo procesar la compra.', icon: 'error', confirmButtonColor: '#EF4444' });
       }
     }
   };
@@ -110,50 +108,30 @@ export default function Pizarra() {
     return (
       <div style={{ width: '100%', padding: '20px' }}>
         <header style={{ marginBottom: '30px', textAlign: 'center' }}>
-          <h2 style={{ fontSize: '2.2rem', color: '#1E293B', margin: '0 0 10px 0', fontWeight: '900' }}>Preparar Pizarra</h2>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '15px', alignItems: 'center', marginBottom: '15px' }}>
-             <span style={{ fontWeight: 'bold', color: '#475569' }}>Curso activo:</span>
-             <select value={cursoActual} onChange={(e) => setCursoActual(e.target.value)} style={{ padding: '8px', borderRadius: '10px', border: '1px solid #CBD5E1', outline: 'none' }}>
-                {cursos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-             </select>
+          <h2 style={{ fontSize: '2.2rem', color: '#1E293B', fontWeight: '900' }}>Preparar Pizarra</h2>
+          <div style={{ margin: '15px 0', display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
+            <span style={{ fontWeight: '700', color: '#64748B' }}>Curso:</span>
+            <select value={cursoActual} onChange={(e) => setCursoActual(Number(e.target.value))} style={{ padding: '8px', borderRadius: '10px', border: '1px solid #CBD5E1', fontWeight: '700', color: '#6366F1' }}>
+              {cursos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
           </div>
-          <p style={{ color: '#64748B', fontSize: '1.1rem' }}>Elige hasta 5 premios para hoy, o deja que el azar decida por ti.</p>
         </header>
 
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '20px', marginBottom: '40px' }}>
           {catalogo.map(premio => {
             const estaSeleccionado = seleccionados.includes(premio.id);
             return (
-              <div 
-                key={premio.id}
-                onClick={() => toggleSeleccion(premio.id)}
-                style={{ 
-                  border: `3px solid ${estaSeleccionado ? '#10B981' : '#E2E8F0'}`, 
-                  borderRadius: '16px', 
-                  padding: '20px', 
-                  backgroundColor: estaSeleccionado ? '#ECFDF5' : '#FFFFFF',
-                  cursor: 'pointer',
-                  position: 'relative',
-                  transition: 'all 0.2s',
-                  transform: estaSeleccionado ? 'scale(1.02)' : 'scale(1)',
-                  opacity: (!estaSeleccionado && seleccionados.length >= 5) ? 0.6 : 1
-                }}
-              >
-                {estaSeleccionado && (
-                  <div style={{ position: 'absolute', top: '-10px', right: '-10px', backgroundColor: '#10B981', color: 'white', width: '30px', height: '30px', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '1.2rem', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>✓</div>
-                )}
+              <div key={premio.id} onClick={() => toggleSeleccion(premio.id)} style={{ border: `3px solid ${estaSeleccionado ? '#10B981' : '#E2E8F0'}`, borderRadius: '16px', padding: '20px', backgroundColor: estaSeleccionado ? '#ECFDF5' : '#FFFFFF', cursor: 'pointer', transition: 'all 0.2s' }}>
                 <div style={{ backgroundColor: '#F1F5F9', color: '#475569', display: 'inline-block', padding: '5px 12px', borderRadius: '12px', fontWeight: '800', fontSize: '0.9rem', marginBottom: '10px' }}>{premio.costo} PTS</div>
-                <h3 style={{ margin: '0 0 5px 0', color: '#1E293B', fontSize: '1.1rem' }}>{premio.nombre}</h3>
+                <h3 style={{ margin: 0, color: '#1E293B' }}>{premio.nombre}</h3>
               </div>
             );
           })}
         </section>
 
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', backgroundColor: '#F8FAFC', padding: '25px', borderRadius: '20px', border: '1px solid #E2E8F0' }}>
-          <button onClick={presentarAzar} style={btnStyle('#F59E0B')}>🎲 Sorpréndelos (Al Azar)</button>
-          <button onClick={presentarSeleccion} style={{ ...btnStyle('#6366F1'), opacity: seleccionados.length === 0 ? 0.5 : 1 }} disabled={seleccionados.length === 0}>
-            📺 Presentar Seleccionados ({seleccionados.length}/5)
-          </button>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '20px' }}>
+          <button onClick={presentarAzar} style={btnMain('#F59E0B')}>🎲 Al Azar</button>
+          <button onClick={presentarSeleccion} style={btnMain('#6366F1')}>📺 Presentar ({seleccionados.length}/5)</button>
         </div>
       </div>
     );
@@ -162,48 +140,61 @@ export default function Pizarra() {
   return (
     <div style={{ width: '100vw', height: '100vh', backgroundColor: '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, zIndex: 9999 }}>
       
-      <button onClick={() => setModoPresentacion(false)} style={closeBtnStyle}>✖</button>
+      <button onClick={() => setModoPresentacion(false)} style={{ position: 'absolute', top: '20px', left: '20px', background: 'none', border: 'none', fontSize: '2rem', cursor: 'pointer', color: '#CBD5E1' }}>✖</button>
 
       <div style={{ textAlign: 'center', marginBottom: '50px', animation: animando ? 'fadeInDown 0.8s ease-out' : 'none' }}>
-        <h1 style={{ fontSize: '4rem', color: '#1E293B', margin: '0 0 10px 0', fontWeight: '900', textShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-          ✨ Premios del Día ✨
-        </h1>
-        <p style={{ fontSize: '1.5rem', color: '#64748B', margin: 0 }}>¡Toca una tarjeta para canjear!</p>
+        <h1 style={{ fontSize: '3.5rem', color: '#1E293B', fontWeight: '900' }}>✨ Premios del Día ✨</h1>
+        <p style={{ fontSize: '1.2rem', color: '#64748B' }}>Selecciona un premio para canjearlo ahora.</p>
       </div>
 
-      <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', justifyContent: 'center', perspective: '1000px', maxWidth: '1400px', padding: '0 20px' }}>
+      <div style={{ display: 'flex', gap: '25px', flexWrap: 'wrap', justifyContent: 'center' }}>
         {premiosPizarra.map((premio, index) => (
           <div 
             key={premio.id} 
-            onClick={() => comprarPremio(premio)}
+            onClick={() => abrirInterfazCompra(premio)}
             style={{ 
-              width: '260px', 
-              height: '380px', 
-              backgroundColor: '#6366F1', 
-              borderRadius: '24px', 
-              display: 'flex', 
-              flexDirection: 'column', 
-              alignItems: 'center', 
-              padding: '30px 20px',
-              cursor: 'pointer',
-              boxShadow: '0 25px 50px -12px rgba(99, 102, 241, 0.4)',
+              width: '260px', height: '360px', backgroundColor: '#6366F1', borderRadius: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '30px', cursor: 'pointer', boxShadow: '0 20px 25px -5px rgba(99, 102, 241, 0.4)',
               animation: animando ? `flipInY 0.6s ease-out ${index * 0.15}s both` : 'none',
-              border: '4px solid #818CF8',
               transition: 'transform 0.2s'
             }}
             onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
             onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
           >
-            <div style={{ backgroundColor: '#FCD34D', color: '#92400E', padding: '10px 25px', borderRadius: '25px', fontWeight: '900', fontSize: '1.4rem', marginBottom: '40px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-              {premio.costo} PTS
-            </div>
-            <h2 style={{ color: 'white', fontSize: '1.8rem', textAlign: 'center', margin: 0, fontWeight: '900', lineHeight: '1.2' }}>
-              {premio.nombre}
-            </h2>
-            <div style={{ marginTop: 'auto', color: '#C7D2FE', fontWeight: 'bold', fontSize: '0.8rem', letterSpacing: '1px' }}>CLICK PARA CANJEAR</div>
+            <div style={{ backgroundColor: '#FCD34D', color: '#92400E', padding: '10px 20px', borderRadius: '15px', fontWeight: '900', fontSize: '1.3rem', marginBottom: '30px' }}>{premio.costo} PTS</div>
+            <h2 style={{ color: 'white', fontSize: '1.7rem', textAlign: 'center', fontWeight: '800' }}>{premio.nombre}</h2>
           </div>
         ))}
       </div>
+
+      {/* MODAL DE COMPRA (REPLICADO DE TIENDA) */}
+      {recompensaActiva && (
+        <div style={overlayStyle}>
+          <div style={modalStyle}>
+            <div style={{ backgroundColor: '#FEF3C7', margin: '-35px -35px 25px -35px', padding: '30px', borderRadius: '24px 24px 0 0', textAlign: 'center', borderBottom: '2px solid #FDE68A' }}>
+              <h2 style={{ margin: '0 0 10px 0', color: '#92400E', fontSize: '1.8rem', fontWeight: '900' }}>{recompensaActiva.nombre}</h2>
+              <span style={{ backgroundColor: '#D97706', color: 'white', padding: '6px 18px', borderRadius: '15px', fontWeight: 'bold' }}>Costo: {recompensaActiva.costo} Pts</span>
+            </div>
+            <h3 style={{ color: '#475569', fontSize: '1.1rem', marginBottom: '15px', fontWeight: '700' }}>¿Quién canjeará este premio?</h3>
+            
+            {cargandoElegibles ? <p style={{ textAlign: 'center', padding: '20px' }}>Buscando alumnos...</p> : alumnosElegibles.length === 0 ? (
+              <div style={{ backgroundColor: '#FEE2E2', color: '#B91C1C', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>Sin alumnos con puntos suficientes.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
+                {alumnosElegibles.map(alumno => (
+                  <div key={alumno.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px', border: '1px solid #E2E8F0', borderRadius: '12px', backgroundColor: '#F8FAFC' }}>
+                    <div>
+                      <strong style={{ display: 'block', color: '#1E293B' }}>{alumno.nombre}</strong>
+                      <span style={{ color: '#10B981', fontWeight: '800' }}>{alumno.puntos} pts</span>
+                    </div>
+                    <button onClick={() => procesarCompra(alumno.id, alumno.nombre)} style={{ padding: '8px 15px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer' }}>Canjear</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setRecompensaActiva(null)} style={{ padding: '15px', width: '100%', marginTop: '20px', backgroundColor: '#F1F5F9', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' }}>Cerrar</button>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes fadeInDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
@@ -213,6 +204,6 @@ export default function Pizarra() {
   );
 }
 
-// Estilos rápidos
-const btnStyle = (bg) => ({ padding: '15px 30px', backgroundColor: bg, color: 'white', border: 'none', borderRadius: '15px', fontWeight: '900', fontSize: '1.1rem', cursor: 'pointer', boxShadow: `0 4px 6px ${bg}33`, transition: 'transform 0.1s' });
-const closeBtnStyle = { position: 'absolute', top: '20px', left: '20px', backgroundColor: 'transparent', border: 'none', color: '#CBD5E1', fontSize: '1.5rem', cursor: 'pointer' };
+const btnMain = (bg) => ({ padding: '15px 30px', backgroundColor: bg, color: 'white', border: 'none', borderRadius: '15px', fontWeight: '800', cursor: 'pointer' });
+const overlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 };
+const modalStyle = { backgroundColor: '#fff', padding: '35px', borderRadius: '24px', width: '90%', maxWidth: '450px', maxHeight: '90vh', overflowY: 'auto' };
