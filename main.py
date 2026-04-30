@@ -177,19 +177,29 @@ def comprar(req: CompraRequest, usuario = Depends(verificar_token)):
         costo_row = cursor.fetchone()
         if not costo_row: raise HTTPException(status_code=404, detail="Premio no existe")
         costo = costo_row[0]
-        
-        # Intentar descontar puntos
         cursor.execute("UPDATE Alumnos SET Puntos = Puntos - %s WHERE AlumnoID = %s AND Puntos >= %s", (costo, req.alumno_id, costo))
-        
         if cursor.rowcount == 0:
-            raise HTTPException(status_code=400, detail="El alumno no tiene puntos suficientes")
-            
+            raise HTTPException(status_code=400, detail="Puntos insuficientes")
         cursor.execute("INSERT INTO HistorialCanjes (AlumnoID, RecompensaID, EstadoCanje, FechaObtencion) VALUES (%s, %s, 'Disponible', CURRENT_TIMESTAMP)", (req.alumno_id, req.recompensa_id))
         conn.commit()
         return {"mensaje": "Canje exitoso"}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close(); conn.close()
+
+# --- RUTA PARA UTILIZAR CANJE (SOLUCIÓN AL ERROR 404) ---
+@app.post("/canjes/{canje_id}/usar")
+def usar_canje(canje_id: int, usuario = Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE HistorialCanjes 
+            SET EstadoCanje = 'Usado', FechaUso = CURRENT_TIMESTAMP 
+            WHERE CanjeID = %s AND EstadoCanje = 'Disponible'
+        """, (canje_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Canje no encontrado o ya utilizado")
+        conn.commit()
+        return {"mensaje": "Premio marcado como usado"}
     finally:
         cursor.close(); conn.close()
 
@@ -222,8 +232,7 @@ def perfil(alumno_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection(); cursor = conn.cursor()
     cursor.execute("SELECT Nombre, Apellido, Puntos FROM Alumnos WHERE AlumnoID = %s", (alumno_id,))
     al = cursor.fetchone()
-    if not al: raise HTTPException(status_code=404, detail="Alumno no encontrado")
-    
+    if not al: raise HTTPException(status_code=404, detail="No encontrado")
     cursor.execute("SELECT h.CanjeID, r.NombreRecompensa, h.FechaObtencion, h.FechaUso, h.EstadoCanje FROM HistorialCanjes h JOIN Recompensas r ON h.RecompensaID = r.RecompensaID WHERE h.AlumnoID = %s ORDER BY h.FechaObtencion DESC", (alumno_id,))
     hist = [{"canje_id": r[0], "recompensa": r[1], "fecha_obtencion": r[2].strftime("%d/%m/%Y %H:%M"), "fecha_uso": r[3].strftime("%d/%m/%Y %H:%M") if r[3] else "Pendiente", "estado": r[4]} for r in cursor.fetchall()]
     cursor.close(); conn.close()
