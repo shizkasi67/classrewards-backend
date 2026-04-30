@@ -19,7 +19,7 @@ export default function Dashboard() {
   
   const [modalCursoActivo, setModalCursoActivo] = useState(false);
   const [nuevoNombreCurso, setNuevoNombreCurso] = useState('');
-  const [nuevaSeccionCurso, setNuevaSeccionCurso] = useState('');
+  const [nuevaSeccionCurso, setNuevaSeccionCurso] = useState(''); // Estado para la sección
 
   const [showHistorial, setShowHistorial] = useState(false);
   const [historialData, setHistorialData] = useState([]);
@@ -51,7 +51,6 @@ export default function Dashboard() {
   const manejarPuntos = async (alumnoId, cantidad, e) => {
     if(e) e.stopPropagation();
     const copiaPrevia = [...alumnos];
-
     setAlumnos(alumnos.map(al => al.id === alumnoId ? { ...al, puntos: al.puntos + cantidad } : al));
 
     try {
@@ -69,12 +68,20 @@ export default function Dashboard() {
   };
 
   // --- FUNCIONES DE CURSOS Y ALUMNOS ---
-  const abrirModalCurso = () => { setNuevoNombreCurso(''); setNuevaSeccionCurso(''); setModalCursoActivo(true); };
+  const abrirModalCurso = () => { 
+    setNuevoNombreCurso(''); 
+    setNuevaSeccionCurso(''); 
+    setModalCursoActivo(true); 
+  };
   
   const guardarNuevoCurso = async (e) => {
     e.preventDefault();
     try { 
-      await api.post('/cursos', { nombre: nuevoNombreCurso, seccion: nuevaSeccionCurso }); 
+      // Enviamos nombre y seccion al backend actualizado
+      await api.post('/cursos', { 
+        nombre: nuevoNombreCurso, 
+        seccion: nuevaSeccionCurso 
+      }); 
       setModalCursoActivo(false); 
       await cargarCursos(); 
       Swal.fire({ title: '¡Curso creado!', icon: 'success', timer: 1500, showConfirmButton: false });
@@ -93,13 +100,10 @@ export default function Dashboard() {
     } catch (err) { Swal.fire('Error', 'No se pudo guardar el estudiante.', 'error'); }
   };
 
-  // --- FUNCIÓN RECUPERADA: ELIMINAR ESTUDIANTE ---
   const eliminarAlumno = async (id, e) => {
-    if (e) e.stopPropagation(); // Evita abrir el perfil al hacer clic en la X
-    
+    if (e) e.stopPropagation();
     const result = await Swal.fire({
       title: '¿Eliminar Estudiante?',
-      text: "Esta acción no se puede deshacer y borrará todo su historial.",
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#EF4444',
@@ -113,13 +117,10 @@ export default function Dashboard() {
         await api.delete(`/alumnos/${id}`); 
         cargarAlumnos(); 
         Swal.fire({ title: 'Eliminado', icon: 'success', timer: 1000, showConfirmButton: false });
-      } catch (error) { 
-        Swal.fire('Error', 'No se pudo eliminar el alumno. Verifica la conexión.', 'error'); 
-      }
+      } catch (error) { Swal.fire('Error', 'No se pudo eliminar.', 'error'); }
     }
   };
 
-  // --- PERFIL E HISTORIAL ---
   const abrirPerfil = async (id) => {
     setPerfilActivo(id);
     try {
@@ -175,6 +176,7 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* BARRA DE HERRAMIENTAS */}
       <section style={{ backgroundColor: '#FFFFFF', padding: '25px', borderRadius: '20px', display: 'flex', gap: '20px', alignItems: 'center', marginBottom: '40px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 250px', position: 'relative' }}>
           <span style={{ position: 'absolute', left: '15px', top: '14px', color: '#94A3B8' }}>🔍</span>
@@ -190,17 +192,12 @@ export default function Dashboard() {
         <button onClick={abrirModalAgregar} style={{...btnStyle('#6366F1'), flex: '1 1 auto'}}>+ Nuevo Estudiante</button>
       </section>
 
+      {/* GRILLA ALUMNOS */}
       {cargando ? <p style={{ textAlign: 'center', padding: '50px' }}>Cargando...</p> : (
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '30px' }}>
           {alumnosFiltrados.map((alumno) => (
             <article key={alumno.id} onClick={() => abrirPerfil(alumno.id)} style={{ backgroundColor: '#FFFFFF', borderRadius: '20px', padding: '30px 20px', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05)', transition: 'all 0.2s' }}>
-              {/* BOTÓN X CORREGIDO */}
-              <button 
-                onClick={(e) => eliminarAlumno(alumno.id, e)} 
-                style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#CBD5E1', cursor: 'pointer', fontSize: '1.2rem' }}
-              >
-                ✖
-              </button>
+              <button onClick={(e) => eliminarAlumno(alumno.id, e)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#CBD5E1', cursor: 'pointer' }}>✖</button>
               <div style={{ width: '70px', height: '70px', borderRadius: '50%', backgroundColor: '#F1F5F9', color: '#6366F1', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '1.8rem', fontWeight: 'bold', margin: '0 auto 15px auto', border: '3px solid #fff', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
                 {alumno.nombre.charAt(0)}
               </div>
@@ -222,12 +219,18 @@ export default function Dashboard() {
       {/* MODALES */}
       {(modalCursoActivo || modalAgregarActivo || perfilActivo || showHistorial) && (
         <div style={overlayStyle}>
+            {/* FORMULARIO DE NUEVO CURSO ACTUALIZADO CON SECCIÓN */}
             {modalCursoActivo && <form onSubmit={guardarNuevoCurso} style={modalStyle}>
               <h2 style={modalTitleStyle}>Nuevo Curso</h2>
-              <input type="text" placeholder="Nombre" value={nuevoNombreCurso} onChange={(e) => setNuevoNombreCurso(e.target.value)} style={inputFormStyle} required />
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <label style={labelStyle}>Nombre del Curso:</label>
+              <input type="text" placeholder="Ej: 4to Medio" value={nuevoNombreCurso} onChange={(e) => setNuevoNombreCurso(e.target.value)} style={inputFormStyle} required />
+              
+              <label style={labelStyle}>Sección / Letra:</label>
+              <input type="text" placeholder="Ej: A" value={nuevaSeccionCurso} onChange={(e) => setNuevaSeccionCurso(e.target.value)} style={inputFormStyle} />
+              
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
                 <button type="button" onClick={() => setModalCursoActivo(false)} style={btnGhost('#64748B')}>Cancelar</button>
-                <button type="submit" style={btnStyle('#6366F1')}>Crear</button>
+                <button type="submit" style={btnStyle('#6366F1')}>Crear Curso</button>
               </div>
             </form>}
 
@@ -318,3 +321,4 @@ const overlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
 const modalStyle = { backgroundColor: '#fff', padding: '40px', borderRadius: '24px', width: '100%', maxWidth: '450px', maxHeight: '90vh', overflowY: 'auto' };
 const modalTitleStyle = { marginTop: 0, color: '#1E293B', marginBottom: '25px', fontSize: '1.6rem', fontWeight: '800' };
 const inputFormStyle = { width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid #E2E8F0', marginBottom: '20px', boxSizing: 'border-box', backgroundColor: '#F8FAFC', outline: 'none', fontSize: '1rem' };
+const labelStyle = { display: 'block', marginBottom: '8px', fontWeight: '700', color: '#475569', fontSize: '0.9rem' };
