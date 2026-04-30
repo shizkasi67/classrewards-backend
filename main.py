@@ -147,7 +147,7 @@ def historial(curso_id: int, usuario = Depends(verificar_token)):
     return res
 
 # ==========================================
-# 7. RUTAS: TIENDA Y CANJES (SOLUCIÓN 404 ELEGIBLES)
+# 7. RUTAS: TIENDA Y CANJES
 # ==========================================
 @app.get("/recompensas")
 def catalogo(usuario = Depends(verificar_token)):
@@ -161,7 +161,9 @@ def catalogo(usuario = Depends(verificar_token)):
 def alumnos_elegibles(rec_id: int, curso_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection(); cursor = conn.cursor()
     cursor.execute("SELECT CostoPuntos FROM Recompensas WHERE RecompensaID = %s", (rec_id,))
-    costo = cursor.fetchone()[0]
+    costo_row = cursor.fetchone()
+    if not costo_row: raise HTTPException(status_code=404, detail="Recompensa no encontrada")
+    costo = costo_row[0]
     cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = %s AND Puntos >= %s", (curso_id, costo))
     res = [{"id": r[0], "nombre": f"{r[1]} {r[2]}", "puntos": r[3]} for r in cursor.fetchall()]
     cursor.close(); conn.close()
@@ -170,32 +172,43 @@ def alumnos_elegibles(rec_id: int, curso_id: int, usuario = Depends(verificar_to
 @app.post("/tienda/comprar")
 def comprar(req: CompraRequest, usuario = Depends(verificar_token)):
     conn = get_db_connection(); cursor = conn.cursor()
-    cursor.execute("SELECT CostoPuntos FROM Recompensas WHERE RecompensaID = %s", (req.recompensa_id,))
-    costo = cursor.fetchone()[0]
-    cursor.execute("UPDATE Alumnos SET Puntos = Puntos - %s WHERE AlumnoID = %s AND Puntos >= %s", (costo, req.alumno_id, costo))
-    if cursor.rowcount == 0: raise HTTPException(status_code=400, detail="Sin puntos")
-    cursor.execute("INSERT INTO HistorialCanjes (AlumnoID, RecompensaID, EstadoCanje, FechaObtencion) VALUES (%s, %s, 'Disponible', CURRENT_TIMESTAMP)", (req.alumno_id, req.recompensa_id))
-    conn.commit(); cursor.close(); conn.close()
-    return {"mensaje": "Compra exitosa"}
+    try:
+        cursor.execute("SELECT CostoPuntos FROM Recompensas WHERE RecompensaID = %s", (req.recompensa_id,))
+        costo_row = cursor.fetchone()
+        if not costo_row: raise HTTPException(status_code=404, detail="Premio no existe")
+        costo = costo_row[0]
+        
+        # Intentar descontar puntos
+        cursor.execute("UPDATE Alumnos SET Puntos = Puntos - %s WHERE AlumnoID = %s AND Puntos >= %s", (costo, req.alumno_id, costo))
+        
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=400, detail="El alumno no tiene puntos suficientes")
+            
+        cursor.execute("INSERT INTO HistorialCanjes (AlumnoID, RecompensaID, EstadoCanje, FechaObtencion) VALUES (%s, %s, 'Disponible', CURRENT_TIMESTAMP)", (req.alumno_id, req.recompensa_id))
+        conn.commit()
+        return {"mensaje": "Canje exitoso"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close(); conn.close()
 
 # ==========================================
-# 8. RUTAS: PIZARRA (SOLUCIÓN 404 Y 405)
+# 8. RUTAS: PIZARRA
 # ==========================================
 @app.post("/recompensas/clase/seleccionar")
 def seleccionar_pizarra(req: SeleccionPizarraRequest, usuario = Depends(verificar_token)):
-    # Esta ruta guarda temporalmente la selección (puedes usar una tabla o simplemente devolver el ok)
     return {"mensaje": "Pizarra preparada"}
 
 @app.get("/recompensas/clase")
 def obtener_pizarra(usuario = Depends(verificar_token)):
-    # Esta ruta suele llamarse después de seleccionar
     conn = get_db_connection(); cursor = conn.cursor()
     cursor.execute("SELECT RecompensaID, NombreRecompensa, CostoPuntos FROM Recompensas ORDER BY RANDOM() LIMIT 5")
     res = [{"id": r[0], "nombre": r[1], "costo": r[2]} for r in cursor.fetchall()]
     cursor.close(); conn.close()
     return res
 
-@app.post("/recompensas/azar") # CAMBIADO A POST PARA SOLUCIONAR EL 405
+@app.post("/recompensas/azar")
 def azar_pizarra(usuario = Depends(verificar_token)):
     conn = get_db_connection(); cursor = conn.cursor()
     cursor.execute("SELECT RecompensaID, NombreRecompensa, CostoPuntos FROM Recompensas ORDER BY RANDOM() LIMIT 3")
@@ -209,6 +222,8 @@ def perfil(alumno_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection(); cursor = conn.cursor()
     cursor.execute("SELECT Nombre, Apellido, Puntos FROM Alumnos WHERE AlumnoID = %s", (alumno_id,))
     al = cursor.fetchone()
+    if not al: raise HTTPException(status_code=404, detail="Alumno no encontrado")
+    
     cursor.execute("SELECT h.CanjeID, r.NombreRecompensa, h.FechaObtencion, h.FechaUso, h.EstadoCanje FROM HistorialCanjes h JOIN Recompensas r ON h.RecompensaID = r.RecompensaID WHERE h.AlumnoID = %s ORDER BY h.FechaObtencion DESC", (alumno_id,))
     hist = [{"canje_id": r[0], "recompensa": r[1], "fecha_obtencion": r[2].strftime("%d/%m/%Y %H:%M"), "fecha_uso": r[3].strftime("%d/%m/%Y %H:%M") if r[3] else "Pendiente", "estado": r[4]} for r in cursor.fetchall()]
     cursor.close(); conn.close()
