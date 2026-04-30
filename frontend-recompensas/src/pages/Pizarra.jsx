@@ -8,9 +8,9 @@ export default function Pizarra() {
   const [cursoSeleccionado, setCursoSeleccionado] = useState('');
   const [alumnos, setAlumnos] = useState([]);
 
-  // 1. Cargar cursos y premios activos para la pizarra al iniciar
+  // 1. Cargar datos iniciales (Cursos y Premios activos)
   useEffect(() => {
-    const cargarDatosIniciales = async () => {
+    const cargarDatos = async () => {
       try {
         const [resCursos, resPremios] = await Promise.all([
           api.get('/cursos'),
@@ -19,35 +19,33 @@ export default function Pizarra() {
         setCursos(resCursos.data);
         setRecompensas(resPremios.data);
       } catch (err) {
-        console.error("Error al cargar datos iniciales:", err);
+        console.error("Error al cargar datos:", err);
       }
     };
-    cargarDatosIniciales();
+    cargarDatos();
   }, []);
 
-  // 2. Cargar lista de alumnos cuando el profesor cambia el curso
+  // 2. Cargar alumnos cuando cambie el curso seleccionado
   useEffect(() => {
     if (cursoSeleccionado) {
       api.get(`/cursos/${cursoSeleccionado}/alumnos`)
         .then(res => setAlumnos(res.data))
         .catch(err => console.error("Error al cargar alumnos:", err));
-    } else {
-      setAlumnos([]);
     }
   }, [cursoSeleccionado]);
 
-  // 3. Lógica de canje interactivo
+  // 3. Función de compra rápida
   const confirmarCompra = async (premio) => {
     if (!cursoSeleccionado) {
       return Swal.fire({
         title: '¡Espera!',
-        text: 'Primero debes seleccionar un curso en la parte superior.',
+        text: 'Selecciona un curso primero en el menú superior.',
         icon: 'info',
         confirmButtonColor: '#6366F1'
       });
     }
 
-    // Generamos las opciones del select con el nombre completo y puntos actuales
+    // El backend ya envía nombre y apellido juntos en la propiedad "nombre"
     const opcionesAlumnos = {};
     alumnos.forEach(a => {
       opcionesAlumnos[a.id] = `${a.nombre} (${a.puntos} pts)`;
@@ -55,10 +53,10 @@ export default function Pizarra() {
 
     const { value: idAlumno } = await Swal.fire({
       title: `Canjear: ${premio.nombre}`,
-      text: `Se descontarán ${premio.costo} puntos.`,
+      text: `Costo: ${premio.costo} puntos`,
       input: 'select',
       inputOptions: opcionesAlumnos,
-      inputPlaceholder: '¿Quién recibe el premio?',
+      inputPlaceholder: 'Selecciona al estudiante',
       showCancelButton: true,
       confirmButtonText: 'Confirmar Canje',
       cancelButtonText: 'Cancelar',
@@ -74,44 +72,42 @@ export default function Pizarra() {
         });
 
         Swal.fire({
-          title: '¡Canje Exitoso!',
-          text: `El premio ha sido asignado a la mochila del estudiante.`,
+          title: '¡Éxito!',
+          text: 'Premio canjeado correctamente.',
           icon: 'success',
-          timer: 2000,
+          timer: 1500,
           showConfirmButton: false
         });
 
-        // Actualizamos la lista de alumnos para reflejar el nuevo puntaje inmediatamente
-        const resActualizada = await api.get(`/cursos/${cursoSeleccionado}/alumnos`);
-        setAlumnos(resActualizada.data);
+        // Actualizar puntos de los alumnos localmente
+        const resAlumnos = await api.get(`/cursos/${cursoSeleccionado}/alumnos`);
+        setAlumnos(resAlumnos.data);
 
       } catch (err) {
-        const mensajeError = err.response?.data?.detail || 'No se pudo procesar la compra.';
-        Swal.fire('Error', mensajeError, 'error');
+        Swal.fire('Error', 'Puntos insuficientes o problema de conexión.', 'error');
       }
     }
   };
 
   return (
-    <div className="p-8 min-h-screen bg-slate-950 text-white font-sans">
-      {/* HEADER INTERACTIVO */}
-      <header className="flex flex-col md:flex-row justify-between items-center mb-16 gap-6">
+    <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: 'white', padding: '40px', fontFamily: 'sans-serif' }}>
+      {/* CABECERA */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '50px', flexWrap: 'wrap', gap: '20px' }}>
         <div>
-          <h1 className="text-5xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
-            MODO PIZARRA
-          </h1>
-          <p className="text-slate-500 font-medium mt-2">Selecciona un premio para realizar un canje rápido.</p>
+          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3.5rem)', fontWeight: '900', color: '#818cf8', margin: 0 }}>MODO PIZARRA</h1>
+          <p style={{ color: '#94a3b8', fontSize: '1.1rem', marginTop: '5px' }}>Selecciona un premio para realizar un canje rápido.</p>
         </div>
         
-        <div className="bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-2xl">
+        <div style={{ backgroundColor: '#1e293b', padding: '10px 20px', borderRadius: '15px', border: '1px solid #334155' }}>
+          <label style={{ marginRight: '10px', fontWeight: 'bold', color: '#94a3b8' }}>Curso:</label>
           <select 
             value={cursoSeleccionado} 
             onChange={(e) => setCursoSeleccionado(e.target.value)}
-            className="bg-transparent px-6 py-3 rounded-xl text-indigo-300 font-bold outline-none cursor-pointer min-w-[250px]"
+            style={{ backgroundColor: 'transparent', color: '#818cf8', border: 'none', fontWeight: 'bold', fontSize: '1.1rem', outline: 'none', cursor: 'pointer' }}
           >
-            <option value="" className="bg-slate-900 text-slate-400">--- Elegir Curso ---</option>
+            <option value="">--- Elegir Curso ---</option>
             {cursos.map(c => (
-              <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+              <option key={c.id} value={c.id} style={{ backgroundColor: '#1e293b', color: 'white' }}>
                 {c.nombre}
               </option>
             ))}
@@ -120,37 +116,79 @@ export default function Pizarra() {
       </header>
 
       {/* REJILLA DE PREMIOS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '40px' }}>
         {recompensas.length > 0 ? (
           recompensas.map(premio => (
             <div 
               key={premio.id}
               onClick={() => confirmarCompra(premio)}
-              className="group relative bg-slate-900 border-2 border-slate-800 p-10 rounded-[2.5rem] cursor-pointer hover:border-indigo-500 hover:scale-[1.02] transition-all duration-300 shadow-xl"
+              style={{ 
+                backgroundColor: '#1e293b', 
+                padding: '40px', 
+                borderRadius: '30px', 
+                border: '2px solid #334155', 
+                cursor: 'pointer', 
+                position: 'relative', 
+                transition: 'all 0.3s ease',
+                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.borderColor = '#6366f1';
+                e.currentTarget.style.transform = 'translateY(-5px)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.borderColor = '#334155';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
             >
-              {/* Etiqueta de Costo */}
-              <div className="absolute -top-5 -right-3 bg-gradient-to-br from-indigo-500 to-purple-600 px-6 py-2 rounded-2xl font-black text-xl shadow-2xl transform group-hover:rotate-6 transition-transform">
-                {premio.costo} <span className="text-xs opacity-80">PTS</span>
+              {/* Burbuja de Costo */}
+              <div style={{ 
+                position: 'absolute', 
+                top: '-20px', 
+                right: '-10px', 
+                backgroundColor: '#6366f1', 
+                color: 'white', 
+                padding: '10px 20px', 
+                borderRadius: '15px', 
+                fontWeight: '900', 
+                fontSize: '1.3rem',
+                boxShadow: '0 4px 10px rgba(99, 102, 241, 0.4)' 
+              }}>
+                {premio.costo} PTS
               </div>
 
-              <h3 className="text-3xl font-extrabold mb-4 text-slate-100 group-hover:text-indigo-400 transition-colors">
-                {premio.nombre}
-              </h3>
-              
-              <p className="text-slate-400 text-lg leading-relaxed mb-8">
+              <h3 style={{ fontSize: '2rem', margin: '0 0 15px 0', color: '#f8fafc', fontWeight: '800' }}>{premio.nombre}</h3>
+              <p style={{ color: '#94a3b8', fontSize: '1.1rem', lineHeight: '1.6', fontStyle: 'italic' }}>
                 {premio.descripcion || "Sin descripción disponible."}
               </p>
-
-              <div className="flex items-center gap-3 text-indigo-500 font-bold text-sm uppercase tracking-[0.2em]">
-                <span className="w-8 h-[2px] bg-indigo-500"></span>
+              
+              <div style={{ 
+                marginTop: '30px', 
+                fontSize: '0.85rem', 
+                fontWeight: 'bold', 
+                color: '#6366f1', 
+                textTransform: 'uppercase', 
+                letterSpacing: '3px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                <span style={{ width: '30px', height: '2px', backgroundColor: '#6366f1' }}></span>
                 Tocar para canjear
               </div>
             </div>
           ))
         ) : (
-          <div className="col-span-full text-center py-20 bg-slate-900/50 rounded-[3rem] border border-dashed border-slate-800">
-            <p className="text-2xl text-slate-600 font-bold italic">No hay premios activos en la pizarra.</p>
-            <p className="text-slate-700 mt-2">Activa premios desde la sección de Recompensas.</p>
+          <div style={{ 
+            gridColumn: '1 / -1', 
+            textAlign: 'center', 
+            padding: '100px 20px', 
+            border: '2px dashed #334155', 
+            borderRadius: '40px',
+            backgroundColor: 'rgba(30, 41, 59, 0.3)'
+          }}>
+            <p style={{ fontSize: '1.8rem', color: '#64748b', fontWeight: 'bold' }}>No hay premios activos en la pizarra.</p>
+            <p style={{ color: '#475569', marginTop: '10px' }}>Asegúrate de haber ejecutado el comando SQL para activarlos.</p>
           </div>
         )}
       </div>
