@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
-import Swal from 'sweetalert2'; // <--- IMPORTAMOS LA LIBRERÍA
+import Swal from 'sweetalert2';
 
 export default function Tienda() {
   const [recompensas, setRecompensas] = useState([]);
@@ -9,6 +9,7 @@ export default function Tienda() {
   
   const [recompensaActiva, setRecompensaActiva] = useState(null);
   const [alumnosElegibles, setAlumnosElegibles] = useState([]);
+  const [alumnosSeleccionados, setAlumnosSeleccionados] = useState([]); // Estado para selección múltiple
   const [cargandoElegibles, setCargandoElegibles] = useState(false);
 
   const [modalNuevaRecompensa, setModalNuevaRecompensa] = useState(false);
@@ -31,10 +32,10 @@ export default function Tienda() {
 
   const abrirModalCompra = async (recompensa) => {
     if (!cursoActual) {
-      // ALERTA ESTÉTICA
       return Swal.fire({ title: 'Atención', text: 'Selecciona un curso primero.', icon: 'info', confirmButtonColor: '#6366F1' });
     }
     setRecompensaActiva(recompensa);
+    setAlumnosSeleccionados([]); // Limpiar selección al abrir
     setCargandoElegibles(true);
     try { 
       const res = await api.get(`/tienda/recompensas/${recompensa.id}/elegibles?curso_id=${cursoActual}`); 
@@ -43,27 +44,40 @@ export default function Tienda() {
     finally { setCargandoElegibles(false); }
   };
 
-  // CONFIRMACIÓN DE COMPRA ESTÉTICA
-  const procesarCompra = async (alumnoId, nombreAlumno) => {
+  const toggleAlumnoSeleccionado = (id) => {
+    setAlumnosSeleccionados(prev => 
+      prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id]
+    );
+  };
+
+  // LÓGICA DE COMPRA MÚLTIPLE
+  const procesarCompraMultiple = async () => {
+    if (alumnosSeleccionados.length === 0) return;
+
+    const cantidad = alumnosSeleccionados.length;
     const result = await Swal.fire({
-      title: '¿Confirmar Canje?',
-      html: `¿Estás segura que <b>${nombreAlumno}</b> canjeará <b>"${recompensaActiva.nombre}"</b>?`,
+      title: '¿Confirmar Entrega Grupal?',
+      html: `¿Estás segura de otorgar <b>"${recompensaActiva.nombre}"</b> a los <b>${cantidad}</b> estudiantes seleccionados?`,
       icon: 'question',
       showCancelButton: true,
-      confirmButtonColor: '#10B981', // Verde
-      cancelButtonColor: '#64748B',  // Gris
-      confirmButtonText: 'Sí, comprar',
+      confirmButtonColor: '#10B981',
+      cancelButtonColor: '#64748B',
+      confirmButtonText: 'Sí, otorgar a todos',
       cancelButtonText: 'Cancelar'
     });
 
     if (result.isConfirmed) {
       try {
-        await api.post('/tienda/comprar', { alumno_id: alumnoId, recompensa_id: recompensaActiva.id });
-        Swal.fire({ title: '¡Éxito!', text: 'Compra realizada con éxito.', icon: 'success', confirmButtonColor: '#6366F1' });
+        // Ejecutar todas las compras en paralelo
+        await Promise.all(alumnosSeleccionados.map(id => 
+          api.post('/tienda/comprar', { alumno_id: id, recompensa_id: recompensaActiva.id })
+        ));
+
+        Swal.fire({ title: '¡Éxito!', text: `Premio entregado correctamente a ${cantidad} estudiantes.`, icon: 'success', confirmButtonColor: '#6366F1' });
         setRecompensaActiva(null);
         cargarDatos(); 
       } catch (error) { 
-        Swal.fire({ title: 'Error', text: 'El alumno no tiene puntos suficientes.', icon: 'error', confirmButtonColor: '#EF4444' });
+        Swal.fire({ title: 'Error', text: 'Hubo un problema con la compra masiva. Verifica los puntos de los estudiantes.', icon: 'error', confirmButtonColor: '#EF4444' });
       }
     }
   };
@@ -83,7 +97,6 @@ export default function Tienda() {
     }
   };
 
-  // CONFIRMACIÓN DE ELIMINACIÓN ESTÉTICA (PELIGRO)
   const eliminarRecompensa = async (id, nombre, e) => {
     e.stopPropagation(); 
     const result = await Swal.fire({
@@ -91,7 +104,7 @@ export default function Tienda() {
       html: `Estás a punto de borrar <b>"${nombre}"</b>. Desaparecerá de la tienda y del inventario de los alumnos.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonColor: '#EF4444', // Rojo
+      confirmButtonColor: '#EF4444',
       cancelButtonColor: '#64748B',
       confirmButtonText: 'Sí, eliminar',
       cancelButtonText: 'Cancelar'
@@ -171,23 +184,75 @@ export default function Tienda() {
               <h2 style={{ margin: '0 0 10px 0', color: '#92400E', fontSize: '1.8rem', fontWeight: '900' }}>{recompensaActiva.nombre}</h2>
               <span style={{ backgroundColor: '#D97706', color: 'white', padding: '6px 18px', borderRadius: '15px', fontWeight: 'bold' }}>Costo: {recompensaActiva.costo} Pts</span>
             </div>
-            <h3 style={{ color: '#475569', fontSize: '1.1rem', marginBottom: '15px', fontWeight: '700' }}>¿Quién canjeará este premio?</h3>
+            <h3 style={{ color: '#475569', fontSize: '1.1rem', marginBottom: '15px', fontWeight: '700' }}>Selecciona a los estudiantes:</h3>
+            
             {cargandoElegibles ? <p style={{ textAlign: 'center', padding: '20px', color: '#64748B' }}>Buscando alumnos...</p> : alumnosElegibles.length === 0 ? (
               <div style={{ backgroundColor: '#FEE2E2', color: '#B91C1C', padding: '20px', borderRadius: '12px', textAlign: 'center', fontWeight: '600' }}>Ningún alumno tiene suficientes puntos.</div>
             ) : (
-              <div style={{ display: 'grid', gap: '12px', maxHeight: '40vh', overflowY: 'auto', paddingRight: '5px' }}>
-                {alumnosElegibles.map(alumno => (
-                  <div key={alumno.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', border: '1px solid #E2E8F0', borderRadius: '12px', backgroundColor: '#F8FAFC' }}>
-                    <div>
-                      <strong style={{ fontSize: '1.1rem', color: '#1E293B', display: 'block' }}>{alumno.nombre}</strong>
-                      <span style={{ color: '#10B981', fontWeight: '800', fontSize: '0.9rem' }}>Disponibles: {alumno.puntos} pts</span>
-                    </div>
-                    <button onClick={() => procesarCompra(alumno.id, alumno.nombre)} style={{ padding: '10px 18px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)' }}>Comprar</button>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div style={{ display: 'grid', gap: '12px', maxHeight: '40vh', overflowY: 'auto', paddingRight: '5px', paddingLeft: '2px' }}>
+                  {alumnosElegibles.map(alumno => {
+                    const isSelected = alumnosSeleccionados.includes(alumno.id);
+                    return (
+                      <div 
+                        key={alumno.id} 
+                        onClick={() => toggleAlumnoSeleccionado(alumno.id)}
+                        style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center', 
+                          padding: '15px 20px', 
+                          border: isSelected ? '2px solid #6366F1' : '1px solid #E2E8F0', 
+                          borderRadius: '12px', 
+                          backgroundColor: isSelected ? '#EEF2FF' : '#F8FAFC',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <div>
+                          <strong style={{ fontSize: '1.1rem', color: '#1E293B', display: 'block' }}>{alumno.nombre}</strong>
+                          <span style={{ color: '#10B981', fontWeight: '800', fontSize: '0.9rem' }}>Disponibles: {alumno.puntos} pts</span>
+                        </div>
+                        <div style={{ 
+                          width: '24px', 
+                          height: '24px', 
+                          borderRadius: '50%', 
+                          border: '2px solid #6366F1', 
+                          backgroundColor: isSelected ? '#6366F1' : 'transparent',
+                          display: 'flex',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          color: 'white',
+                          fontSize: '0.8rem'
+                        }}>
+                          {isSelected && '✓'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <button 
+                  onClick={procesarCompraMultiple} 
+                  disabled={alumnosSeleccionados.length === 0}
+                  style={{ 
+                    padding: '15px', 
+                    width: '100%', 
+                    marginTop: '20px', 
+                    backgroundColor: alumnosSeleccionados.length > 0 ? '#10B981' : '#CBD5E1', 
+                    color: 'white', 
+                    border: 'none', 
+                    borderRadius: '12px', 
+                    fontWeight: '800', 
+                    cursor: alumnosSeleccionados.length > 0 ? 'pointer' : 'default',
+                    boxShadow: alumnosSeleccionados.length > 0 ? '0 4px 6px rgba(16, 185, 129, 0.2)' : 'none'
+                  }}
+                >
+                  Otorgar a {alumnosSeleccionados.length} estudiantes
+                </button>
+              </>
             )}
-            <button onClick={() => setRecompensaActiva(null)} style={{ padding: '15px', width: '100%', marginTop: '25px', backgroundColor: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' }}>Cancelar</button>
+            <button onClick={() => setRecompensaActiva(null)} style={{ padding: '15px', width: '100%', marginTop: '10px', backgroundColor: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' }}>Cerrar</button>
           </div>
         </div>
       )}
