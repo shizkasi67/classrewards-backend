@@ -145,8 +145,18 @@ def crear_curso(req: NuevoCursoRequest, usuario = Depends(verificar_token)):
 def obtener_alumnos_por_curso(curso_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
+    # Traemos ID, Nombre, Apellido y Puntos
     cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = %s ORDER BY Apellido ASC", (curso_id,))
-    alumnos = [{"id": r[0], "nombre": r[1], "apellido": r[2], "puntos": r[3]} for r in cursor.fetchall()]
+    
+    alumnos = [
+        {
+            "id": r[0], 
+            "nombre": f"{r[1]} {r[2]}",
+            "apellido": r[2], 
+            "puntos": r[3]
+        } for r in cursor.fetchall()
+    ]
+    
     cursor.close()
     conn.close()
     return alumnos
