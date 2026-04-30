@@ -12,7 +12,7 @@ export default function Pizarra() {
   const [seleccionados, setSeleccionados] = useState([]);
   const [animando, setAnimando] = useState(false);
 
-  // Estados reutilizados de la Tienda para el Modal de Compra
+  // Estados para el Modal de Compra (Reutilizados de Tienda)
   const [recompensaActiva, setRecompensaActiva] = useState(null);
   const [alumnosElegibles, setAlumnosElegibles] = useState([]);
   const [cargandoElegibles, setCargandoElegibles] = useState(false);
@@ -31,7 +31,7 @@ export default function Pizarra() {
 
   useEffect(() => { cargarDatosIniciales(); }, []);
 
-  // --- LÓGICA DE SELECCIÓN ---
+  // --- LÓGICA DE PRESENTACIÓN ---
   const toggleSeleccion = (id) => {
     if (seleccionados.includes(id)) {
       setSeleccionados(seleccionados.filter(item => item !== id));
@@ -45,9 +45,7 @@ export default function Pizarra() {
   };
 
   const presentarSeleccion = async () => {
-    if (seleccionados.length === 0) {
-      return Swal.fire({ title: 'Atención', text: 'Selecciona al menos un premio.', icon: 'warning', confirmButtonColor: '#F59E0B' });
-    }
+    if (seleccionados.length === 0) return Swal.fire({ title: 'Atención', text: 'Selecciona premios.', icon: 'warning' });
     try {
       await api.post('/recompensas/clase/seleccionar', { ids: seleccionados });
       const res = await api.get('/recompensas/clase');
@@ -69,21 +67,26 @@ export default function Pizarra() {
     } catch (error) { Swal.fire('Error', 'Fallo al elegir premios al azar.', 'error'); }
   };
 
-  // --- LÓGICA DE COMPRA REUTILIZADA DE LA TIENDA ---
+  // --- INTERFAZ DE COMPRA REPLICADA DE LA TIENDA ---
   const abrirInterfazCompra = async (recompensa) => {
+    if (!cursoActual) return Swal.fire('Atención', 'Selecciona un curso.', 'info');
+    
     setRecompensaActiva(recompensa);
     setCargandoElegibles(true);
     try { 
+      // LA CORRECCIÓN: Enviamos ?curso_id para que el backend filtre los alumnos
       const res = await api.get(`/tienda/recompensas/${recompensa.id}/elegibles?curso_id=${cursoActual}`); 
       setAlumnosElegibles(res.data); 
-    } catch (error) { console.error(error); } 
-    finally { setCargandoElegibles(false); }
+    } catch (error) { 
+        console.error(error); 
+        setAlumnosElegibles([]);
+    } finally { setCargandoElegibles(false); }
   };
 
   const procesarCompra = async (alumnoId, nombreAlumno) => {
     const result = await Swal.fire({
       title: '¿Confirmar Canje?',
-      html: `¿Estás segura que <b>${nombreAlumno}</b> canjeará <b>"${recompensaActiva.nombre}"</b>?`,
+      html: `¿Confirmas que <b>${nombreAlumno}</b> canjeará <b>"${recompensaActiva.nombre}"</b>?`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#10B981',
@@ -95,11 +98,10 @@ export default function Pizarra() {
     if (result.isConfirmed) {
       try {
         await api.post('/tienda/comprar', { alumno_id: alumnoId, recompensa_id: recompensaActiva.id });
-        Swal.fire({ title: '¡Éxito!', text: 'Compra realizada.', icon: 'success', confirmButtonColor: '#6366F1', timer: 1500, showConfirmButton: false });
+        Swal.fire({ title: '¡Éxito!', text: 'Compra realizada.', icon: 'success', timer: 1500, showConfirmButton: false });
         setRecompensaActiva(null);
-        // Recargar elegibles por si el mismo alumno quiere comprar otra cosa
       } catch (error) { 
-        Swal.fire({ title: 'Error', text: 'No se pudo procesar la compra.', icon: 'error', confirmButtonColor: '#EF4444' });
+        Swal.fire({ title: 'Error', text: 'Puntos insuficientes.', icon: 'error' });
       }
     }
   };
@@ -121,9 +123,9 @@ export default function Pizarra() {
           {catalogo.map(premio => {
             const estaSeleccionado = seleccionados.includes(premio.id);
             return (
-              <div key={premio.id} onClick={() => toggleSeleccion(premio.id)} style={{ border: `3px solid ${estaSeleccionado ? '#10B981' : '#E2E8F0'}`, borderRadius: '16px', padding: '20px', backgroundColor: estaSeleccionado ? '#ECFDF5' : '#FFFFFF', cursor: 'pointer', transition: 'all 0.2s' }}>
-                <div style={{ backgroundColor: '#F1F5F9', color: '#475569', display: 'inline-block', padding: '5px 12px', borderRadius: '12px', fontWeight: '800', fontSize: '0.9rem', marginBottom: '10px' }}>{premio.costo} PTS</div>
-                <h3 style={{ margin: 0, color: '#1E293B' }}>{premio.nombre}</h3>
+              <div key={premio.id} onClick={() => toggleSeleccion(premio.id)} style={{ border: `3px solid ${estaSeleccionado ? '#10B981' : '#E2E8F0'}`, borderRadius: '16px', padding: '20px', backgroundColor: estaSeleccionado ? '#ECFDF5' : '#FFFFFF', cursor: 'pointer' }}>
+                <div style={{ backgroundColor: '#F1F5F9', color: '#475569', display: 'inline-block', padding: '5px 12px', borderRadius: '12px', fontWeight: '800', fontSize: '0.8rem', marginBottom: '10px' }}>{premio.costo} PTS</div>
+                <h3 style={{ margin: 0, fontSize: '1rem' }}>{premio.nombre}</h3>
               </div>
             );
           })}
@@ -131,7 +133,7 @@ export default function Pizarra() {
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: '20px' }}>
           <button onClick={presentarAzar} style={btnMain('#F59E0B')}>🎲 Al Azar</button>
-          <button onClick={presentarSeleccion} style={btnMain('#6366F1')}>📺 Presentar ({seleccionados.length}/5)</button>
+          <button onClick={presentarSeleccion} style={btnMain('#6366F1')}>📺 Presentar</button>
         </div>
       </div>
     );
@@ -142,9 +144,8 @@ export default function Pizarra() {
       
       <button onClick={() => setModoPresentacion(false)} style={{ position: 'absolute', top: '20px', left: '20px', background: 'none', border: 'none', fontSize: '2rem', cursor: 'pointer', color: '#CBD5E1' }}>✖</button>
 
-      <div style={{ textAlign: 'center', marginBottom: '50px', animation: animando ? 'fadeInDown 0.8s ease-out' : 'none' }}>
+      <div style={{ textAlign: 'center', marginBottom: '50px' }}>
         <h1 style={{ fontSize: '3.5rem', color: '#1E293B', fontWeight: '900' }}>✨ Premios del Día ✨</h1>
-        <p style={{ fontSize: '1.2rem', color: '#64748B' }}>Selecciona un premio para canjearlo ahora.</p>
       </div>
 
       <div style={{ display: 'flex', gap: '25px', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -154,11 +155,8 @@ export default function Pizarra() {
             onClick={() => abrirInterfazCompra(premio)}
             style={{ 
               width: '260px', height: '360px', backgroundColor: '#6366F1', borderRadius: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '30px', cursor: 'pointer', boxShadow: '0 20px 25px -5px rgba(99, 102, 241, 0.4)',
-              animation: animando ? `flipInY 0.6s ease-out ${index * 0.15}s both` : 'none',
-              transition: 'transform 0.2s'
+              animation: animando ? `flipInY 0.6s ease-out ${index * 0.15}s both` : 'none'
             }}
-            onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-            onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
           >
             <div style={{ backgroundColor: '#FCD34D', color: '#92400E', padding: '10px 20px', borderRadius: '15px', fontWeight: '900', fontSize: '1.3rem', marginBottom: '30px' }}>{premio.costo} PTS</div>
             <h2 style={{ color: 'white', fontSize: '1.7rem', textAlign: 'center', fontWeight: '800' }}>{premio.nombre}</h2>
@@ -166,7 +164,7 @@ export default function Pizarra() {
         ))}
       </div>
 
-      {/* MODAL DE COMPRA (REPLICADO DE TIENDA) */}
+      {/* MODAL DE COMPRA REPLICADO DE TIENDA */}
       {recompensaActiva && (
         <div style={overlayStyle}>
           <div style={modalStyle}>
@@ -174,7 +172,6 @@ export default function Pizarra() {
               <h2 style={{ margin: '0 0 10px 0', color: '#92400E', fontSize: '1.8rem', fontWeight: '900' }}>{recompensaActiva.nombre}</h2>
               <span style={{ backgroundColor: '#D97706', color: 'white', padding: '6px 18px', borderRadius: '15px', fontWeight: 'bold' }}>Costo: {recompensaActiva.costo} Pts</span>
             </div>
-            <h3 style={{ color: '#475569', fontSize: '1.1rem', marginBottom: '15px', fontWeight: '700' }}>¿Quién canjeará este premio?</h3>
             
             {cargandoElegibles ? <p style={{ textAlign: 'center', padding: '20px' }}>Buscando alumnos...</p> : alumnosElegibles.length === 0 ? (
               <div style={{ backgroundColor: '#FEE2E2', color: '#B91C1C', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>Sin alumnos con puntos suficientes.</div>
@@ -197,7 +194,6 @@ export default function Pizarra() {
       )}
 
       <style>{`
-        @keyframes fadeInDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes flipInY { from { opacity: 0; transform: rotateY(90deg); } to { opacity: 1; transform: rotateY(0deg); } }
       `}</style>
     </div>

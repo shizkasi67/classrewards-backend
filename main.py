@@ -146,8 +146,8 @@ def obtener_alumnos_por_curso(curso_id: int, usuario = Depends(verificar_token))
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = %s ORDER BY Apellido ASC", (curso_id,))
-    # Se une nombre y apellido para el frontend
-    alumnos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}", "apellido": r[2], "puntos": r[3]} for r in cursor.fetchall()]
+    # Se une nombre y apellido en el backend para el frontend
+    alumnos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}", "puntos": r[3]} for r in cursor.fetchall()]
     cursor.close()
     conn.close()
     return alumnos
@@ -227,6 +227,30 @@ def obtener_recompensas(usuario = Depends(verificar_token)):
     conn.close()
     return recompensas
 
+@app.get("/tienda/recompensas/{recompensa_id}/elegibles")
+def alumnos_elegibles_para_recompensa(recompensa_id: int, curso_id: int, usuario = Depends(verificar_token)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT CostoPuntos FROM Recompensas WHERE RecompensaID = %s", (recompensa_id,))
+        recompensa = cursor.fetchone()
+        if not recompensa: raise HTTPException(status_code=404, detail="No encontrada")
+        
+        costo = recompensa[0]
+        # Filtra alumnos por curso y puntos suficientes
+        cursor.execute("""
+            SELECT AlumnoID, Nombre, Apellido, Puntos 
+            FROM Alumnos 
+            WHERE CursoID = %s AND Puntos >= %s
+            ORDER BY Apellido ASC
+        """, (curso_id, costo))
+        
+        alumnos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}", "puntos": r[3]} for r in cursor.fetchall()]
+        return alumnos
+    finally:
+        cursor.close()
+        conn.close()
+
 @app.post("/tienda/comprar")
 def comprar_recompensa(req: CompraRequest, usuario = Depends(verificar_token)):
     conn = get_db_connection()
@@ -244,62 +268,57 @@ def comprar_recompensa(req: CompraRequest, usuario = Depends(verificar_token)):
         conn.close()
 
 # ==========================================
-# 10. RUTAS: MODO PIZARRA (Actualizado)
+# 10. RUTAS: MODO PIZARRA
 # ==========================================
-
-# Esta ruta es la que te daba el error 404 al presionar "Presentar Seleccionados"
 @app.post("/recompensas/clase/seleccionar")
 def seleccionar_recompensas_clase(req: SeleccionRecompensasRequest, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Primero desactivamos todos para la pizarra
         cursor.execute("UPDATE Recompensas SET ActivaParaClase = 0")
-        
-        # Activamos solo los IDs que seleccionaste en el Frontend
         if req.ids:
-            # Creamos los placeholders (%s, %s, ...) según la cantidad de IDs
             placeholders = ','.join(['%s'] * len(req.ids))
             query = f"UPDATE Recompensas SET ActivaParaClase = 1 WHERE RecompensaID IN ({placeholders})"
             cursor.execute(query, tuple(req.ids))
-        
         conn.commit()
-        return {"mensaje": "Premios actualizados para la pizarra"}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"mensaje": "Pizarra actualizada"}
     finally:
         cursor.close()
         conn.close()
 
-# Esta ruta es la que te daba error 404 al presionar "Al Azar"
+@app.get("/recompensas/clase")
+def obtener_recompensas_clase(usuario = Depends(verificar_token)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT RecompensaID, NombreRecompensa, Descripcion, CostoPuntos FROM Recompensas WHERE ActivaParaClase = 1")
+    recompensas = [{"id": r[0], "nombre": r[1], "descripcion": r[2], "costo": r[3]} for r in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return recompensas
+
 @app.post("/recompensas/azar")
 def recompensas_al_azar(usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Desactivamos actuales
         cursor.execute("UPDATE Recompensas SET ActivaParaClase = 0")
-        
-        # Seleccionamos 3 al azar y los activamos (Sintaxis específica para PostgreSQL/Neon)
-        cursor.execute("""
-            UPDATE Recompensas 
-            SET ActivaParaClase = 1 
-            WHERE RecompensaID IN (
-                SELECT RecompensaID FROM Recompensas 
-                ORDER BY RANDOM() 
-                LIMIT 3
-            )
-        """)
+        cursor.execute("UPDATE Recompensas SET ActivaParaClase = 1 WHERE RecompensaID IN (SELECT RecompensaID FROM Recompensas ORDER BY RANDOM() LIMIT 3)")
         conn.commit()
-        
-        # Devolvemos los premios elegidos para que el Frontend los muestre de inmediato
         cursor.execute("SELECT RecompensaID, NombreRecompensa, Descripcion, CostoPuntos FROM Recompensas WHERE ActivaParaClase = 1")
         recompensas = [{"id": r[0], "nombre": r[1], "descripcion": r[2], "costo": r[3]} for r in cursor.fetchall()]
         return recompensas
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.post("/canjes/{canje_id}/usar")
+def usar_recompensa(canje_id: int, usuario = Depends(verificar_token)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE HistorialCanjes SET EstadoCanje = 'Usado', FechaUso = CURRENT_TIMESTAMP WHERE CanjeID = %s AND EstadoCanje = 'Disponible'", (canje_id,))
+        conn.commit()
+        return {"mensaje": "Utilizado"}
     finally:
         cursor.close()
         conn.close()
