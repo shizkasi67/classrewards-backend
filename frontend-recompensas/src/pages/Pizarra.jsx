@@ -35,7 +35,7 @@ export default function Pizarra() {
       setSeleccionados(seleccionados.filter(item => item !== id));
     } else {
       if (seleccionados.length >= 5) {
-        Swal.fire({ title: 'Límite alcanzado', text: 'Máximo 5 premios.', icon: 'info', confirmButtonColor: '#6366F1' });
+        Swal.fire({ title: 'Límite alcanzado', text: 'Máximo 5 premios.', icon: 'info' });
         return; 
       }
       setSeleccionados([...seleccionados, id]);
@@ -77,11 +77,15 @@ export default function Pizarra() {
     finally { setCargandoElegibles(false); }
   };
 
-  // --- FUNCIÓN DE COMPRA ---
+  // --- CORRECCIÓN 1: Función de compra robusta con logs ---
   const ejecutarCanje = async (alumnoId, nombreAlumno) => {
-    console.log("Intentando canje para:", nombreAlumno, "Recompensa:", recompensaActiva?.nombre);
+    console.log("Botón presionado para:", nombreAlumno); // Para ver en la consola (F12)
     
-    if (!recompensaActiva) return;
+    // Si por alguna razón el estado se perdió, no hacemos nada
+    if (!recompensaActiva) {
+        console.error("No hay recompensa activa en el estado");
+        return;
+    }
 
     const result = await Swal.fire({
       title: '¿Confirmar Canje?',
@@ -91,7 +95,8 @@ export default function Pizarra() {
       confirmButtonColor: '#10B981',
       cancelButtonColor: '#64748B',
       confirmButtonText: 'Sí, comprar',
-      cancelButtonText: 'Cancelar'
+      cancelButtonText: 'Cancelar',
+      allowOutsideClick: false // Evita cierres accidentales
     });
 
     if (result.isConfirmed) {
@@ -102,7 +107,7 @@ export default function Pizarra() {
         });
         
         await Swal.fire({ title: '¡Éxito!', text: 'Canje realizado.', icon: 'success', timer: 1500, showConfirmButton: false });
-        setRecompensaActiva(null);
+        setRecompensaActiva(null); // Cierra el modal
       } catch (error) { 
         Swal.fire({ title: 'Error', text: 'No se pudo procesar el canje.', icon: 'error' });
       }
@@ -159,7 +164,7 @@ export default function Pizarra() {
             }}
           >
             <div style={{ backgroundColor: '#FCD34D', color: '#92400E', padding: '10px 25px', borderRadius: '25px', fontWeight: '900', fontSize: '1.4rem', marginBottom: '40px' }}>{premio.costo} PTS</div>
-            <h2 style={{ color: 'white', fontSize: '1.8rem', textAlign: 'center', fontWeight: '900' }}>{premio.nombre}</h2>
+            <h2 style={{ color: 'white', fontSize: '1.7rem', textAlign: 'center', fontWeight: '900' }}>{premio.nombre}</h2>
           </div>
         ))}
       </div>
@@ -185,10 +190,13 @@ export default function Pizarra() {
                       <strong style={{ fontSize: '1.1rem', color: '#1E293B', display: 'block' }}>{alumno.nombre}</strong>
                       <span style={{ color: '#10B981', fontWeight: '800' }}>{alumno.puntos} pts</span>
                     </div>
-                    {/* BOTÓN VINCULADO DIRECTAMENTE A ejecutarCanje */}
+                    {/* CORRECCIÓN 2: Uso de onClick directo y preventivo */}
                     <button 
                       type="button"
-                      onClick={() => ejecutarCanje(alumno.id, alumno.nombre)} 
+                      onClick={(e) => {
+                          e.preventDefault();
+                          ejecutarCanje(alumno.id, alumno.nombre);
+                      }} 
                       style={{ padding: '10px 18px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer' }}
                     >
                       Canjear
