@@ -19,7 +19,7 @@ ALGORITHM = os.getenv("ALGORITHM")
 app = FastAPI(title="Backend ClassRewards - Sistema de Recompensas")
 
 # 2. CONFIGURACIÓN DE CORS
-url_permitida = os.getenv("FRONTEND_URL", "https://classrewards-backend.vercel.app")
+url_permitida = os.getenv("FRONTEND_URL", "*") # Usa "*" temporalmente si tienes problemas de acceso
 
 app.add_middleware(
     CORSMiddleware,
@@ -87,6 +87,11 @@ class CompraRequest(BaseModel):
     alumno_id: int
     recompensa_id: int
 
+class NuevaRecompensaRequest(BaseModel):
+    nombre: str
+    costo: int
+    descripcion: Optional[str] = ""
+
 # ==========================================
 # 6. RUTAS: AUTENTICACIÓN
 # ==========================================
@@ -112,7 +117,7 @@ def login(req: LoginRequest):
 def obtener_cursos(usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT CursoID, NombreCurso, Seccion FROM Cursos")
+    cursor.execute("SELECT CursoID, NombreCurso, Seccion FROM Cursos ORDER BY NombreCurso ASC")
     cursos = [{"id": r[0], "nombre": f"{r[1]} {r[2] if r[2] else ''}".strip()} for r in cursor.fetchall()]
     cursor.close()
     conn.close()
@@ -153,32 +158,21 @@ def crear_alumno(req: NuevoAlumnoRequest, usuario = Depends(verificar_token)):
             (req.nombre, req.apellido, req.curso_id)
         )
         conn.commit()
-        return {"mensaje": "Alumno agregado con éxito"}
+        return {"mensaje": "Alumno agregado"}
     finally:
         cursor.close()
         conn.close()
 
-# --- RUTA NUEVA: ELIMINAR ALUMNO ---
 @app.delete("/alumnos/{alumno_id}")
 def eliminar_alumno(alumno_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 1. Eliminar historial de puntos
         cursor.execute("DELETE FROM HistorialPuntos WHERE AlumnoID = %s", (alumno_id,))
-        # 2. Eliminar historial de canjes
         cursor.execute("DELETE FROM HistorialCanjes WHERE AlumnoID = %s", (alumno_id,))
-        # 3. Eliminar al alumno
         cursor.execute("DELETE FROM Alumnos WHERE AlumnoID = %s", (alumno_id,))
-        
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Alumno no encontrado")
-            
         conn.commit()
-        return {"mensaje": "Estudiante eliminado correctamente"}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
+        return {"mensaje": "Eliminado"}
     finally:
         cursor.close()
         conn.close()
@@ -192,10 +186,10 @@ def modificar_puntos(req: ModificarPuntosRequest, usuario = Depends(verificar_to
     cursor = conn.cursor()
     try:
         if req.alumno_id:
-            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE AlumnoID = %s AND (Puntos + %s) >= 0", (req.cantidad, req.alumno_id, req.cantidad))
+            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE AlumnoID = %s", (req.cantidad, req.alumno_id))
             cursor.execute("INSERT INTO HistorialPuntos (AlumnoID, CursoID, Cantidad, Motivo) SELECT %s, CursoID, %s, 'Ajuste manual' FROM Alumnos WHERE AlumnoID = %s", (req.alumno_id, req.cantidad, req.alumno_id))
         elif req.curso_id:
-            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE CursoID = %s AND (Puntos + %s) >= 0", (req.cantidad, req.curso_id, req.cantidad))
+            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE CursoID = %s", (req.cantidad, req.curso_id))
             cursor.execute("INSERT INTO HistorialPuntos (CursoID, Cantidad, Motivo) VALUES (%s, %s, 'Ajuste grupal')", (req.curso_id, req.cantidad))
         conn.commit()
         return {"mensaje": "Puntos actualizados"}
@@ -225,7 +219,7 @@ def obtener_historial_curso(curso_id: int, usuario = Depends(verificar_token)):
     return historial
 
 # ==========================================
-# 10. RUTAS: PERFIL Y TIENDA
+# 10. RUTAS: PERFIL Y TIENDA (PROCESO DE COMPRA)
 # ==========================================
 @app.get("/alumnos/{alumno_id}/perfil")
 def obtener_perfil_alumno(alumno_id: int, usuario = Depends(verificar_token)):
@@ -268,6 +262,46 @@ def comprar_recompensa(req: CompraRequest, usuario = Depends(verificar_token)):
         cursor.execute("INSERT INTO HistorialCanjes (AlumnoID, RecompensaID, EstadoCanje, FechaObtencion) VALUES (%s, %s, 'Disponible', CURRENT_TIMESTAMP)", (req.alumno_id, req.recompensa_id))
         conn.commit()
         return {"mensaje": "Compra exitosa"}
+    finally:
+        cursor.close()
+        conn.close()
+
+# ==========================================
+# 11. RUTAS: CATÁLOGO DE RECOMPENSAS (NUEVAS)
+# ==========================================
+@app.get("/recompensas")
+def obtener_catalogo_recompensas(usuario = Depends(verificar_token)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT RecompensaID, NombreRecompensa, CostoPuntos, Descripcion FROM Recompensas ORDER BY CostoPuntos ASC")
+    recompensas = [{"id": r[0], "nombre": r[1], "costo": r[2], "descripcion": r[3]} for r in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return recompensas
+
+@app.post("/recompensas")
+def crear_recompensa(req: NuevaRecompensaRequest, usuario = Depends(verificar_token)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO Recompensas (NombreRecompensa, CostoPuntos, Descripcion) VALUES (%s, %s, %s)", 
+                       (req.nombre, req.costo, req.descripcion))
+        conn.commit()
+        return {"mensaje": "Premio creado"}
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.delete("/recompensas/{recompensa_id}")
+def eliminar_recompensa(recompensa_id: int, usuario = Depends(verificar_token)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Eliminar primero de los historiales de canjes para evitar errores de llave foránea
+        cursor.execute("DELETE FROM HistorialCanjes WHERE RecompensaID = %s", (recompensa_id,))
+        cursor.execute("DELETE FROM Recompensas WHERE RecompensaID = %s", (recompensa_id,))
+        conn.commit()
+        return {"mensaje": "Recompensa eliminada"}
     finally:
         cursor.close()
         conn.close()
