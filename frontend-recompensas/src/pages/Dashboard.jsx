@@ -58,7 +58,6 @@ export default function Dashboard() {
       if (alumnoId) {
         await api.post('/alumnos/modificar-puntos', { cantidad, alumno_id: alumnoId });
       } else {
-        // Puntos a todo el curso
         setAlumnos(alumnos.map(al => ({ ...al, puntos: al.puntos + cantidad })));
         await api.post('/alumnos/modificar-puntos', { cantidad, curso_id: cursoActual });
       }
@@ -94,10 +93,13 @@ export default function Dashboard() {
     } catch (err) { Swal.fire('Error', 'No se pudo guardar el estudiante.', 'error'); }
   };
 
+  // --- FUNCIÓN RECUPERADA: ELIMINAR ESTUDIANTE ---
   const eliminarAlumno = async (id, e) => {
-    e.stopPropagation();
+    if (e) e.stopPropagation(); // Evita abrir el perfil al hacer clic en la X
+    
     const result = await Swal.fire({
       title: '¿Eliminar Estudiante?',
+      text: "Esta acción no se puede deshacer y borrará todo su historial.",
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#EF4444',
@@ -111,7 +113,9 @@ export default function Dashboard() {
         await api.delete(`/alumnos/${id}`); 
         cargarAlumnos(); 
         Swal.fire({ title: 'Eliminado', icon: 'success', timer: 1000, showConfirmButton: false });
-      } catch (error) { Swal.fire('Error', 'No se pudo eliminar.', 'error'); }
+      } catch (error) { 
+        Swal.fire('Error', 'No se pudo eliminar el alumno. Verifica la conexión.', 'error'); 
+      }
     }
   };
 
@@ -162,7 +166,6 @@ export default function Dashboard() {
           <h2 style={{ fontSize: 'clamp(1.5rem, 2.5vw, 2.2rem)', color: '#1E293B', margin: '0 0 5px 0', fontWeight: '800' }}>Gestión de Clase</h2>
           <button onClick={cargarHistorialGeneral} style={btnGhost('#6366F1')}>📋 Ver Historial de Puntos</button>
         </div>
-        
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px', alignItems: 'center', backgroundColor: '#FFFFFF', padding: '12px 25px', borderRadius: '15px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
           <label style={{ fontWeight: '700', color: '#475569' }}>Curso:</label>
           <select value={cursoActual} onChange={(e) => setCursoActual(Number(e.target.value))} style={{ border: 'none', backgroundColor: '#F1F5F9', padding: '10px 15px', borderRadius: '10px', fontWeight: '700', color: '#6366F1', outline: 'none', cursor: 'pointer' }}>
@@ -177,7 +180,6 @@ export default function Dashboard() {
           <span style={{ position: 'absolute', left: '15px', top: '14px', color: '#94A3B8' }}>🔍</span>
           <input type="search" placeholder="Buscar..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} style={{ width: '100%', padding: '14px 14px 14px 45px', borderRadius: '12px', border: '1px solid #E2E8F0', backgroundColor: '#F8FAFC', fontSize: '1rem', outline: 'none', boxSizing: 'border-box' }} />
         </div>
-
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', backgroundColor: '#F1F5F9', padding: '10px 20px', borderRadius: '15px', flex: '1 1 auto', justifyContent: 'center' }}>
           <span style={{ fontSize: '0.9rem', color: '#475569', fontWeight: '800' }}>PARA TODOS:</span>
           <button onClick={() => manejarPuntos(null, 1)} style={btnFast('#10B981')}>+1</button>
@@ -185,7 +187,6 @@ export default function Dashboard() {
           <button onClick={() => manejarPuntos(null, -1)} style={btnFast('#EF4444')}>-1</button>
           <button onClick={() => manejarPuntos(null, -3)} style={btnFast('#EF4444')}>-3</button>
         </div>
-
         <button onClick={abrirModalAgregar} style={{...btnStyle('#6366F1'), flex: '1 1 auto'}}>+ Nuevo Estudiante</button>
       </section>
 
@@ -193,18 +194,20 @@ export default function Dashboard() {
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '30px' }}>
           {alumnosFiltrados.map((alumno) => (
             <article key={alumno.id} onClick={() => abrirPerfil(alumno.id)} style={{ backgroundColor: '#FFFFFF', borderRadius: '20px', padding: '30px 20px', textAlign: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05)', transition: 'all 0.2s' }}>
-              <button onClick={(e) => eliminarAlumno(alumno.id, e)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#CBD5E1', cursor: 'pointer' }}>✖</button>
-              
+              {/* BOTÓN X CORREGIDO */}
+              <button 
+                onClick={(e) => eliminarAlumno(alumno.id, e)} 
+                style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#CBD5E1', cursor: 'pointer', fontSize: '1.2rem' }}
+              >
+                ✖
+              </button>
               <div style={{ width: '70px', height: '70px', borderRadius: '50%', backgroundColor: '#F1F5F9', color: '#6366F1', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '1.8rem', fontWeight: 'bold', margin: '0 auto 15px auto', border: '3px solid #fff', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
                 {alumno.nombre.charAt(0)}
               </div>
-              
               <h2 style={{ fontSize: '1.2rem', margin: '0 0 5px 0', color: '#1E293B', fontWeight: '800' }}>{alumno.nombre}</h2>
-              
               <div style={{ display: 'inline-block', backgroundColor: '#FEF3C7', color: '#D97706', padding: '8px 20px', borderRadius: '25px', fontWeight: '900', fontSize: '1.4rem', marginBottom: '25px' }}>
                 {alumno.puntos} <span style={{ fontSize: '0.8rem' }}>PTS</span>
               </div>
-              
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <button onClick={(e) => manejarPuntos(alumno.id, 1, e)} style={btnAction('#10B981')}>+1</button>
                 <button onClick={(e) => manejarPuntos(alumno.id, 3, e)} style={btnAction('#10B981')}>+3</button>
@@ -216,6 +219,7 @@ export default function Dashboard() {
         </section>
       )}
 
+      {/* MODALES */}
       {(modalCursoActivo || modalAgregarActivo || perfilActivo || showHistorial) && (
         <div style={overlayStyle}>
             {modalCursoActivo && <form onSubmit={guardarNuevoCurso} style={modalStyle}>
@@ -280,9 +284,7 @@ export default function Dashboard() {
                     <div style={{ fontSize: '2.5rem', fontWeight: '900', color: '#10B981' }}>{datosPerfil.puntos}</div>
                   </div>
                 </div>
-
                 <h3 style={{ fontSize: '1.2rem', color: '#475569', marginBottom: '20px' }}>Inventario de Premios</h3>
-                
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '15px', maxHeight: '40vh', overflowY: 'auto' }}>
                   {datosPerfil.historial.map(canje => (
                     <div key={canje.canje_id} style={{ border: '2px solid #E2E8F0', borderRadius: '16px', padding: '15px', backgroundColor: canje.estado === 'Usado' ? '#F8FAFC' : '#fff' }}>
@@ -307,6 +309,7 @@ export default function Dashboard() {
   );
 }
 
+// ESTILOS
 const btnStyle = (bg) => ({ padding: '12px 20px', cursor: 'pointer', backgroundColor: bg, color: bg === '#F1F5F9' ? '#475569' : 'white', border: 'none', borderRadius: '12px', fontWeight: '800', transition: 'all 0.2s', whiteSpace: 'nowrap' });
 const btnGhost = (color) => ({ backgroundColor: 'transparent', color: color, border: 'none', fontWeight: '700', cursor: 'pointer', padding: '10px', whiteSpace: 'nowrap' });
 const btnFast = (bg) => ({ padding: '8px 15px', border: 'none', backgroundColor: bg, color: '#fff', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' });
