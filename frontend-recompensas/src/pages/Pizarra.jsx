@@ -9,12 +9,13 @@ export default function Pizarra() {
   const [cursoActual, setCursoActual] = useState('');
   
   const [modoPresentacion, setModoPresentacion] = useState(false);
-  const [seleccionados, setSeleccionados] = useState([]);
+  const [seleccionadosPremios, setSeleccionadosPremios] = useState([]);
   const [animando, setAnimando] = useState(false);
 
-  // Estados del Modal de Compra
+  // Estados del Modal de Compra Múltiple
   const [recompensaActiva, setRecompensaActiva] = useState(null);
   const [alumnosElegibles, setAlumnosElegibles] = useState([]);
+  const [alumnosSeleccionados, setAlumnosSeleccionados] = useState([]); // Nueva selección múltiple
   const [cargandoElegibles, setCargandoElegibles] = useState(false);
 
   const cargarDatosIniciales = async () => {
@@ -31,22 +32,22 @@ export default function Pizarra() {
 
   useEffect(() => { cargarDatosIniciales(); }, []);
 
-  const toggleSeleccion = (id) => {
-    if (seleccionados.includes(id)) {
-      setSeleccionados(seleccionados.filter(item => item !== id));
+  const toggleSeleccionPremio = (id) => {
+    if (seleccionadosPremios.includes(id)) {
+      setSeleccionadosPremios(seleccionadosPremios.filter(item => item !== id));
     } else {
-      if (seleccionados.length >= 5) {
+      if (seleccionadosPremios.length >= 5) {
         Swal.fire({ title: 'Límite alcanzado', text: 'Máximo 5 premios.', icon: 'info' });
         return; 
       }
-      setSeleccionados([...seleccionados, id]);
+      setSeleccionadosPremios([...seleccionadosPremios, id]);
     }
   };
 
   const presentarSeleccion = async () => {
-    if (seleccionados.length === 0) return Swal.fire({ title: 'Atención', text: 'Selecciona premios.', icon: 'warning' });
+    if (seleccionadosPremios.length === 0) return Swal.fire({ title: 'Atención', text: 'Selecciona premios.', icon: 'warning' });
     try {
-      await api.post('/recompensas/clase/seleccionar', { ids: seleccionados });
+      await api.post('/recompensas/clase/seleccionar', { ids: seleccionadosPremios });
       const res = await api.get('/recompensas/clase');
       setPremiosPizarra(res.data);
       setModoPresentacion(true);
@@ -59,7 +60,7 @@ export default function Pizarra() {
     try {
       const res = await api.post('/recompensas/azar');
       setPremiosPizarra(res.data);
-      setSeleccionados(res.data.map(p => p.id));
+      setSeleccionadosPremios(res.data.map(p => p.id));
       setModoPresentacion(true);
       setAnimando(true);
       setTimeout(() => setAnimando(false), 800);
@@ -69,6 +70,7 @@ export default function Pizarra() {
   const abrirModalCompraPizarra = async (recompensa) => {
     if (!cursoActual) return Swal.fire({ title: 'Atención', text: 'Selecciona un curso primero.', icon: 'info' });
     setRecompensaActiva(recompensa);
+    setAlumnosSeleccionados([]); // Limpiamos selección previa
     setCargandoElegibles(true);
     try { 
       const res = await api.get(`/tienda/recompensas/${recompensa.id}/elegibles?curso_id=${cursoActual}`); 
@@ -77,41 +79,51 @@ export default function Pizarra() {
     finally { setCargandoElegibles(false); }
   };
 
-  const procesarCompraPizarra = async (alumnoId, nombreAlumno) => {
-    console.log("Botón presionado para:", nombreAlumno);
+  const toggleAlumnoSeleccionado = (id) => {
+    setAlumnosSeleccionados(prev => 
+      prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id]
+    );
+  };
+
+  const procesarCompraMultiple = async () => {
+    if (alumnosSeleccionados.length === 0) return;
+
     const contenedor = document.getElementById('contenedor-pizarra');
+    const cantidad = alumnosSeleccionados.length;
 
     const result = await Swal.fire({
-      title: '¿Confirmar Canje?',
-      html: `¿Estás segura que <b>${nombreAlumno}</b> canjeará <b>"${recompensaActiva.nombre}"</b>?`,
+      title: '¿Confirmar Canje Grupal?',
+      html: `¿Estás segura de otorgar <b>"${recompensaActiva.nombre}"</b> a los <b>${cantidad}</b> estudiantes seleccionados?`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#10B981',
       cancelButtonColor: '#64748B',
-      confirmButtonText: 'Sí, comprar',
+      confirmButtonText: 'Sí, otorgar a todos',
       cancelButtonText: 'Cancelar',
       target: contenedor || 'body',
-      didOpen: () => {
-        // Forzamos manualmente el z-index al abrir para asegurar visibilidad
-        Swal.getContainer().style.zIndex = "10001";
-      }
+      didOpen: () => { Swal.getContainer().style.zIndex = "10001"; }
     });
 
     if (result.isConfirmed) {
       try {
-        await api.post('/tienda/comprar', { alumno_id: alumnoId, recompensa_id: recompensaActiva.id });
+        // Procesamos todas las compras en paralelo
+        await Promise.all(alumnosSeleccionados.map(id => 
+          api.post('/tienda/comprar', { alumno_id: id, recompensa_id: recompensaActiva.id })
+        ));
+
         await Swal.fire({ 
           title: '¡Éxito!', 
-          text: 'Compra realizada.', 
+          text: `Premio entregado a ${cantidad} estudiantes.`, 
           icon: 'success', 
           target: contenedor || 'body',
           didOpen: () => { Swal.getContainer().style.zIndex = "10001"; }
         });
+        
         setRecompensaActiva(null);
       } catch (error) { 
         Swal.fire({ 
           title: 'Error', 
-          text: 'No se pudo procesar la compra.', 
+          text: 'Uno o más estudiantes no pudieron completar el canje.', 
           icon: 'error',
           target: contenedor || 'body',
           didOpen: () => { Swal.getContainer().style.zIndex = "10001"; }
@@ -127,14 +139,14 @@ export default function Pizarra() {
           <h2 style={{ fontSize: '2.2rem', color: '#1E293B', fontWeight: '900' }}>Preparar Pizarra</h2>
           <div style={{ margin: '15px 0', display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
             <span style={{ fontWeight: '700', color: '#64748B' }}>Curso:</span>
-            <select value={cursoActual} onChange={(e) => setCursoActual(Number(e.target.value))} style={{ padding: '8px 15px', borderRadius: '10px', border: '1px solid #CBD5E1', fontWeight: '700', color: '#6366F1' }}>
+            <select value={cursoActual} onChange={(e) => { setCursoActual(Number(e.target.value)); setSeleccionadosPremios([]); }} style={{ padding: '8px 15px', borderRadius: '10px', border: '1px solid #CBD5E1', fontWeight: '700', color: '#6366F1', outline: 'none', cursor: 'pointer' }}>
               {cursos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
           </div>
         </header>
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '20px', marginBottom: '40px' }}>
           {catalogo.map(premio => (
-            <div key={premio.id} onClick={() => toggleSeleccion(premio.id)} style={{ border: `3px solid ${seleccionados.includes(premio.id) ? '#10B981' : '#E2E8F0'}`, borderRadius: '16px', padding: '20px', backgroundColor: seleccionados.includes(premio.id) ? '#ECFDF5' : '#FFFFFF', cursor: 'pointer' }}>
+            <div key={premio.id} onClick={() => toggleSeleccionPremio(premio.id)} style={{ border: `3px solid ${seleccionadosPremios.includes(premio.id) ? '#10B981' : '#E2E8F0'}`, borderRadius: '16px', padding: '20px', backgroundColor: seleccionadosPremios.includes(premio.id) ? '#ECFDF5' : '#FFFFFF', cursor: 'pointer' }}>
               <div style={{ backgroundColor: '#F1F5F9', color: '#475569', display: 'inline-block', padding: '5px 12px', borderRadius: '12px', fontWeight: '800', fontSize: '0.8rem', marginBottom: '10px' }}>{premio.costo} PTS</div>
               <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{premio.nombre}</h3>
             </div>
@@ -179,23 +191,54 @@ export default function Pizarra() {
               <h2 style={{ margin: '0 0 10px 0', color: '#92400E', fontSize: '1.8rem', fontWeight: '900' }}>{recompensaActiva.nombre}</h2>
               <span style={{ backgroundColor: '#D97706', color: 'white', padding: '6px 18px', borderRadius: '15px', fontWeight: 'bold' }}>Costo: {recompensaActiva.costo} Pts</span>
             </div>
-            <h3 style={{ color: '#475569', fontSize: '1.1rem', marginBottom: '15px', fontWeight: '700' }}>¿Quién canjeará este premio?</h3>
+            <h3 style={{ color: '#475569', fontSize: '1.1rem', marginBottom: '15px', fontWeight: '700' }}>Selecciona los alumnos que canjearán:</h3>
+            
             {cargandoElegibles ? <p style={{ textAlign: 'center', padding: '20px' }}>Buscando...</p> : alumnosElegibles.length === 0 ? (
-              <div style={{ backgroundColor: '#FEE2E2', color: '#B91C1C', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>Sin puntos suficientes.</div>
+              <div style={{ backgroundColor: '#FEE2E2', color: '#B91C1C', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>Sin puntos suficientes en este curso.</div>
             ) : (
-              <div style={{ display: 'grid', gap: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
-                {alumnosElegibles.map(alumno => (
-                  <div key={alumno.id} style={alumnoRowStyle}>
-                    <div>
-                      <strong style={{ fontSize: '1.1rem', color: '#1E293B', display: 'block' }}>{alumno.nombre}</strong>
-                      <span style={{ color: '#10B981', fontWeight: '800' }}>{alumno.puntos} pts</span>
-                    </div>
-                    <button onClick={() => procesarCompraPizarra(alumno.id, alumno.nombre)} style={btnComprarStyle}>Comprar</button>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div style={{ display: 'grid', gap: '12px', maxHeight: '40vh', overflowY: 'auto', padding: '5px' }}>
+                  {alumnosElegibles.map(alumno => {
+                    const isSelected = alumnosSeleccionados.includes(alumno.id);
+                    return (
+                      <div 
+                        key={alumno.id} 
+                        onClick={() => toggleAlumnoSeleccionado(alumno.id)}
+                        style={{ 
+                          ...alumnoRowStyle, 
+                          backgroundColor: isSelected ? '#E0E7FF' : '#F8FAFC',
+                          border: isSelected ? '2px solid #6366F1' : '1px solid #E2E8F0',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <div>
+                          <strong style={{ fontSize: '1.1rem', color: '#1E293B', display: 'block' }}>{alumno.nombre}</strong>
+                          <span style={{ color: '#10B981', fontWeight: '800' }}>{alumno.puntos} pts</span>
+                        </div>
+                        <div style={{ width: '24px', height: '24px', borderRadius: '50%', border: '2px solid #6366F1', backgroundColor: isSelected ? '#6366F1' : 'transparent', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'white', fontWeight: 'bold', fontSize: '0.8rem' }}>
+                          {isSelected && '✓'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <button 
+                  onClick={procesarCompraMultiple} 
+                  disabled={alumnosSeleccionados.length === 0}
+                  style={{ 
+                    ...btnComprarStyle, 
+                    width: '100%', 
+                    marginTop: '20px', 
+                    opacity: alumnosSeleccionados.length === 0 ? 0.5 : 1,
+                    backgroundColor: '#10B981'
+                  }}
+                >
+                  Otorgar a {alumnosSeleccionados.length} estudiante(s)
+                </button>
+              </>
             )}
-            <button onClick={() => setRecompensaActiva(null)} style={btnCancelStyle}>Cancelar</button>
+            <button onClick={() => setRecompensaActiva(null)} style={btnCancelStyle}>Cerrar</button>
           </div>
         </div>
       )}
@@ -209,13 +252,13 @@ export default function Pizarra() {
   );
 }
 
-// ESTILOS EN CONSTANTES
+// ESTILOS (Sin cambios)
 const pizarraLayoutStyle = { width: '100vw', height: '100vh', backgroundColor: '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, zIndex: 9990 };
 const closeBtnStyle = { position: 'absolute', top: '20px', left: '20px', background: 'none', border: 'none', fontSize: '2rem', cursor: 'pointer', color: '#CBD5E1' };
 const overlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000, padding: '20px' };
 const modalAlumnosStyle = { backgroundColor: '#fff', padding: '35px', borderRadius: '24px', width: '100%', maxWidth: '450px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' };
 const modalHeaderStyle = { backgroundColor: '#FEF3C7', margin: '-35px -35px 25px -35px', padding: '30px', borderRadius: '24px 24px 0 0', textAlign: 'center', borderBottom: '2px solid #FDE68A' };
-const alumnoRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', border: '1px solid #E2E8F0', borderRadius: '12px', backgroundColor: '#F8FAFC' };
+const alumnoRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', border: '1px solid #E2E8F0', borderRadius: '12px', transition: 'all 0.2s' };
 const btnStyle = (bg) => ({ padding: '15px 30px', backgroundColor: bg, color: 'white', border: 'none', borderRadius: '15px', fontWeight: '800', cursor: 'pointer' });
-const btnComprarStyle = { padding: '10px 18px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer' };
-const btnCancelStyle = { padding: '15px', width: '100%', marginTop: '25px', backgroundColor: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' };
+const btnComprarStyle = { padding: '15px', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer', color: 'white' };
+const btnCancelStyle = { padding: '15px', width: '100%', marginTop: '10px', backgroundColor: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' };
