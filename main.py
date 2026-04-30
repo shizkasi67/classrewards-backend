@@ -19,6 +19,7 @@ ALGORITHM = os.getenv("ALGORITHM")
 app = FastAPI(title="Backend ClassRewards - Sistema de Recompensas")
 
 # 2. CONFIGURACIÓN DE CORS
+# Asegúrate de que esta URL coincida con tu frontend en Vercel
 url_permitida = os.getenv("FRONTEND_URL", "https://classrewards-backend.vercel.app")
 
 app.add_middleware(
@@ -146,11 +147,28 @@ def obtener_alumnos_por_curso(curso_id: int, usuario = Depends(verificar_token))
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = %s ORDER BY Apellido ASC", (curso_id,))
-    # Se une nombre y apellido en el backend para el frontend
     alumnos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}", "puntos": r[3]} for r in cursor.fetchall()]
     cursor.close()
     conn.close()
     return alumnos
+
+@app.post("/alumnos")
+def crear_alumno(req: NuevoAlumnoRequest, usuario = Depends(verificar_token)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO Alumnos (Nombre, Apellido, CursoID, Puntos) VALUES (%s, %s, %s, 0)", 
+            (req.nombre, req.apellido, req.curso_id)
+        )
+        conn.commit()
+        return {"mensaje": "Alumno agregado con éxito"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.post("/alumnos/modificar-puntos")
 def modificar_puntos(req: ModificarPuntosRequest, usuario = Depends(verificar_token)):
@@ -197,25 +215,35 @@ def obtener_historial_curso(curso_id: int, usuario = Depends(verificar_token)):
 def obtener_perfil_alumno(alumno_id: int, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT Nombre, Apellido, Puntos FROM Alumnos WHERE AlumnoID = %s", (alumno_id,))
-    alumno_row = cursor.fetchone()
-    if not alumno_row: raise HTTPException(status_code=404, detail="No encontrado")
-    
-    cursor.execute("""
-        SELECT h.CanjeID, r.NombreRecompensa, h.FechaObtencion, h.FechaUso, h.EstadoCanje 
-        FROM HistorialCanjes h JOIN Recompensas r ON h.RecompensaID = r.RecompensaID
-        WHERE h.AlumnoID = %s ORDER BY h.FechaObtencion DESC
-    """, (alumno_id,))
-    
-    historial = [{
-        "canje_id": row[0], "recompensa": row[1],
-        "fecha_obtencion": row[2].strftime("%Y-%m-%d %H:%M") if row[2] else "Desconocida",
-        "fecha_uso": row[3].strftime("%Y-%m-%d %H:%M") if row[3] else None,
-        "estado": row[4]
-    } for row in cursor.fetchall()]
-    cursor.close()
-    conn.close()
-    return {"nombre": f"{alumno_row[0]} {alumno_row[1]}", "puntos": alumno_row[2], "historial": historial}
+    try:
+        cursor.execute("SELECT Nombre, Apellido, Puntos FROM Alumnos WHERE AlumnoID = %s", (alumno_id,))
+        alumno_row = cursor.fetchone()
+        if not alumno_row: raise HTTPException(status_code=404, detail="No encontrado")
+        
+        cursor.execute("""
+            SELECT h.CanjeID, r.NombreRecompensa, h.FechaObtencion, h.FechaUso, h.EstadoCanje 
+            FROM HistorialCanjes h 
+            JOIN Recompensas r ON h.RecompensaID = r.RecompensaID
+            WHERE h.AlumnoID = %s 
+            ORDER BY h.FechaObtencion DESC
+        """, (alumno_id,))
+        
+        historial = [{
+            "canje_id": row[0], 
+            "recompensa": row[1],
+            "fecha_obtencion": row[2].strftime("%d/%m/%Y %H:%M") if row[2] else "N/A",
+            "fecha_uso": row[3].strftime("%d/%m/%Y %H:%M") if row[3] else "Pendiente",
+            "estado": row[4]
+        } for row in cursor.fetchall()]
+        
+        return {
+            "nombre": f"{alumno_row[0]} {alumno_row[1]}", 
+            "puntos": alumno_row[2], 
+            "historial": historial
+        }
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.get("/recompensas")
 def obtener_recompensas(usuario = Depends(verificar_token)):
@@ -237,7 +265,6 @@ def alumnos_elegibles_para_recompensa(recompensa_id: int, curso_id: int, usuario
         if not recompensa: raise HTTPException(status_code=404, detail="No encontrada")
         
         costo = recompensa[0]
-        # Filtra alumnos por curso y puntos suficientes
         cursor.execute("""
             SELECT AlumnoID, Nombre, Apellido, Puntos 
             FROM Alumnos 

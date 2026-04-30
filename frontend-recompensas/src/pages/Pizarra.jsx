@@ -31,7 +31,7 @@ export default function Pizarra() {
 
   useEffect(() => { cargarDatosIniciales(); }, []);
 
-  // --- LÓGICA DE PRESENTACIÓN ---
+  // --- LÓGICA DE PREPARACIÓN ---
   const toggleSeleccion = (id) => {
     if (seleccionados.includes(id)) {
       setSeleccionados(seleccionados.filter(item => item !== id));
@@ -67,14 +67,14 @@ export default function Pizarra() {
     } catch (error) { Swal.fire('Error', 'Fallo al elegir premios al azar.', 'error'); }
   };
 
-  // --- INTERFAZ DE COMPRA REPLICADA DE LA TIENDA ---
+  // --- INTERFAZ DE COMPRA (REPLICADA DE TIENDA) ---
   const abrirInterfazCompra = async (recompensa) => {
     if (!cursoActual) return Swal.fire('Atención', 'Selecciona un curso.', 'info');
     
     setRecompensaActiva(recompensa);
     setCargandoElegibles(true);
     try { 
-      // LA CORRECCIÓN: Enviamos ?curso_id para que el backend filtre los alumnos
+      // Enviamos el cursoActual para que el backend filtre los alumnos con puntos
       const res = await api.get(`/tienda/recompensas/${recompensa.id}/elegibles?curso_id=${cursoActual}`); 
       setAlumnosElegibles(res.data); 
     } catch (error) { 
@@ -98,10 +98,13 @@ export default function Pizarra() {
     if (result.isConfirmed) {
       try {
         await api.post('/tienda/comprar', { alumno_id: alumnoId, recompensa_id: recompensaActiva.id });
+        
         Swal.fire({ title: '¡Éxito!', text: 'Compra realizada.', icon: 'success', timer: 1500, showConfirmButton: false });
-        setRecompensaActiva(null);
+        
+        setRecompensaActiva(null); // Cerrar modal al terminar
+        
       } catch (error) { 
-        Swal.fire({ title: 'Error', text: 'Puntos insuficientes.', icon: 'error' });
+        Swal.fire({ title: 'Error', text: 'No se pudo procesar la compra.', icon: 'error' });
       }
     }
   };
@@ -112,7 +115,7 @@ export default function Pizarra() {
         <header style={{ marginBottom: '30px', textAlign: 'center' }}>
           <h2 style={{ fontSize: '2.2rem', color: '#1E293B', fontWeight: '900' }}>Preparar Pizarra</h2>
           <div style={{ margin: '15px 0', display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
-            <span style={{ fontWeight: '700', color: '#64748B' }}>Curso:</span>
+            <span style={{ fontWeight: '700', color: '#64748B' }}>Curso activo para canjes:</span>
             <select value={cursoActual} onChange={(e) => setCursoActual(Number(e.target.value))} style={{ padding: '8px', borderRadius: '10px', border: '1px solid #CBD5E1', fontWeight: '700', color: '#6366F1' }}>
               {cursos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
@@ -155,8 +158,11 @@ export default function Pizarra() {
             onClick={() => abrirInterfazCompra(premio)}
             style={{ 
               width: '260px', height: '360px', backgroundColor: '#6366F1', borderRadius: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '30px', cursor: 'pointer', boxShadow: '0 20px 25px -5px rgba(99, 102, 241, 0.4)',
-              animation: animando ? `flipInY 0.6s ease-out ${index * 0.15}s both` : 'none'
+              animation: animando ? `flipInY 0.6s ease-out ${index * 0.15}s both` : 'none',
+              transition: 'transform 0.2s'
             }}
+            onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+            onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
           >
             <div style={{ backgroundColor: '#FCD34D', color: '#92400E', padding: '10px 20px', borderRadius: '15px', fontWeight: '900', fontSize: '1.3rem', marginBottom: '30px' }}>{premio.costo} PTS</div>
             <h2 style={{ color: 'white', fontSize: '1.7rem', textAlign: 'center', fontWeight: '800' }}>{premio.nombre}</h2>
@@ -164,7 +170,7 @@ export default function Pizarra() {
         ))}
       </div>
 
-      {/* MODAL DE COMPRA REPLICADO DE TIENDA */}
+      {/* MODAL DE COMPRA (ESTILO TIENDA) */}
       {recompensaActiva && (
         <div style={overlayStyle}>
           <div style={modalStyle}>
@@ -173,27 +179,35 @@ export default function Pizarra() {
               <span style={{ backgroundColor: '#D97706', color: 'white', padding: '6px 18px', borderRadius: '15px', fontWeight: 'bold' }}>Costo: {recompensaActiva.costo} Pts</span>
             </div>
             
+            <h3 style={{ color: '#475569', fontSize: '1.1rem', marginBottom: '15px', fontWeight: '700' }}>¿Quién canjeará este premio?</h3>
+            
             {cargandoElegibles ? <p style={{ textAlign: 'center', padding: '20px' }}>Buscando alumnos...</p> : alumnosElegibles.length === 0 ? (
-              <div style={{ backgroundColor: '#FEE2E2', color: '#B91C1C', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>Sin alumnos con puntos suficientes.</div>
+              <div style={{ backgroundColor: '#FEE2E2', color: '#B91C1C', padding: '20px', borderRadius: '12px', textAlign: 'center', fontWeight: '600' }}>Ningún alumno tiene suficientes puntos.</div>
             ) : (
-              <div style={{ display: 'grid', gap: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
+              <div style={{ display: 'grid', gap: '12px', maxHeight: '40vh', overflowY: 'auto', paddingRight: '5px' }}>
                 {alumnosElegibles.map(alumno => (
                   <div key={alumno.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px', border: '1px solid #E2E8F0', borderRadius: '12px', backgroundColor: '#F8FAFC' }}>
                     <div>
                       <strong style={{ display: 'block', color: '#1E293B' }}>{alumno.nombre}</strong>
                       <span style={{ color: '#10B981', fontWeight: '800' }}>{alumno.puntos} pts</span>
                     </div>
-                    <button onClick={() => procesarCompra(alumno.id, alumno.nombre)} style={{ padding: '8px 15px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer' }}>Canjear</button>
+                    <button 
+                        onClick={() => procesarCompra(alumno.id, alumno.nombre)} 
+                        style={{ padding: '10px 18px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer' }}
+                    >
+                        Comprar
+                    </button>
                   </div>
                 ))}
               </div>
             )}
-            <button onClick={() => setRecompensaActiva(null)} style={{ padding: '15px', width: '100%', marginTop: '20px', backgroundColor: '#F1F5F9', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' }}>Cerrar</button>
+            <button onClick={() => setRecompensaActiva(null)} style={{ padding: '15px', width: '100%', marginTop: '20px', backgroundColor: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' }}>Cancelar</button>
           </div>
         </div>
       )}
 
       <style>{`
+        @keyframes fadeInDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes flipInY { from { opacity: 0; transform: rotateY(90deg); } to { opacity: 1; transform: rotateY(0deg); } }
       `}</style>
     </div>
