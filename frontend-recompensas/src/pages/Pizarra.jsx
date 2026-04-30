@@ -1,196 +1,159 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
-import Swal from 'sweetalert2'; // <-- Magia de alertas importada
+import Swal from 'sweetalert2';
 
 export default function Pizarra() {
-  const [catalogo, setCatalogo] = useState([]);
-  const [premiosPizarra, setPremiosPizarra] = useState([]);
-  
-  const [modoPresentacion, setModoPresentacion] = useState(false);
-  const [seleccionados, setSeleccionados] = useState([]);
-  const [animando, setAnimando] = useState(false);
+  const [recompensas, setRecompensas] = useState([]);
+  const [cursos, setCursos] = useState([]);
+  const [cursoSeleccionado, setCursoSeleccionado] = useState('');
+  const [alumnos, setAlumnos] = useState([]);
 
-  const cargarCatalogo = async () => {
-    try {
-      const res = await api.get('/recompensas');
-      setCatalogo(res.data);
-    } catch (error) { console.error("Error al cargar el catálogo", error); }
-  };
-
-  useEffect(() => { cargarCatalogo(); }, []);
-
-  const toggleSeleccion = (id) => {
-    if (seleccionados.includes(id)) {
-      setSeleccionados(seleccionados.filter(item => item !== id));
-    } else {
-      if (seleccionados.length >= 5) {
-        // Alerta estética de límite
-        Swal.fire({
-          title: 'Límite alcanzado',
-          text: 'Puedes seleccionar un máximo de 5 premios para mostrar en la pizarra.',
-          icon: 'info',
-          confirmButtonColor: '#6366F1'
-        });
-        return; 
+  // 1. Cargar cursos y premios activos para la pizarra al iniciar
+  useEffect(() => {
+    const cargarDatosIniciales = async () => {
+      try {
+        const [resCursos, resPremios] = await Promise.all([
+          api.get('/cursos'),
+          api.get('/recompensas/clase')
+        ]);
+        setCursos(resCursos.data);
+        setRecompensas(resPremios.data);
+      } catch (err) {
+        console.error("Error al cargar datos iniciales:", err);
       }
-      setSeleccionados([...seleccionados, id]);
+    };
+    cargarDatosIniciales();
+  }, []);
+
+  // 2. Cargar lista de alumnos cuando el profesor cambia el curso
+  useEffect(() => {
+    if (cursoSeleccionado) {
+      api.get(`/cursos/${cursoSeleccionado}/alumnos`)
+        .then(res => setAlumnos(res.data))
+        .catch(err => console.error("Error al cargar alumnos:", err));
+    } else {
+      setAlumnos([]);
+    }
+  }, [cursoSeleccionado]);
+
+  // 3. Lógica de canje interactivo
+  const confirmarCompra = async (premio) => {
+    if (!cursoSeleccionado) {
+      return Swal.fire({
+        title: '¡Espera!',
+        text: 'Primero debes seleccionar un curso en la parte superior.',
+        icon: 'info',
+        confirmButtonColor: '#6366F1'
+      });
+    }
+
+    // Generamos las opciones del select con el nombre completo y puntos actuales
+    const opcionesAlumnos = {};
+    alumnos.forEach(a => {
+      opcionesAlumnos[a.id] = `${a.nombre} (${a.puntos} pts)`;
+    });
+
+    const { value: idAlumno } = await Swal.fire({
+      title: `Canjear: ${premio.nombre}`,
+      text: `Se descontarán ${premio.costo} puntos.`,
+      input: 'select',
+      inputOptions: opcionesAlumnos,
+      inputPlaceholder: '¿Quién recibe el premio?',
+      showCancelButton: true,
+      confirmButtonText: 'Confirmar Canje',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#6366F1',
+      cancelButtonColor: '#64748B',
+    });
+
+    if (idAlumno) {
+      try {
+        await api.post('/tienda/comprar', {
+          alumno_id: parseInt(idAlumno),
+          recompensa_id: premio.id
+        });
+
+        Swal.fire({
+          title: '¡Canje Exitoso!',
+          text: `El premio ha sido asignado a la mochila del estudiante.`,
+          icon: 'success',
+          timer: 2000,
+          showConfirmButton: false
+        });
+
+        // Actualizamos la lista de alumnos para reflejar el nuevo puntaje inmediatamente
+        const resActualizada = await api.get(`/cursos/${cursoSeleccionado}/alumnos`);
+        setAlumnos(resActualizada.data);
+
+      } catch (err) {
+        const mensajeError = err.response?.data?.detail || 'No se pudo procesar la compra.';
+        Swal.fire('Error', mensajeError, 'error');
+      }
     }
   };
 
-  const presentarSeleccion = async () => {
-    if (seleccionados.length === 0) {
-      return Swal.fire({ title: 'Atención', text: 'Selecciona al menos un premio para presentar.', icon: 'warning', confirmButtonColor: '#F59E0B' });
-    }
-    
-    try {
-      await api.post('/recompensas/clase/seleccionar', { ids: seleccionados });
-      const res = await api.get('/recompensas/clase');
-      setPremiosPizarra(res.data);
-      iniciarAnimacion();
-    } catch (error) {
-      Swal.fire('Error', 'Hubo un problema al preparar los premios.', 'error');
-    }
-  };
-
-  const presentarAzar = async () => {
-    try {
-      const res = await api.post('/recompensas/azar');
-      setPremiosPizarra(res.data);
-      setSeleccionados(res.data.map(p => p.id));
-      iniciarAnimacion();
-    } catch (error) {
-      Swal.fire('Error', 'No se pudieron elegir los premios al azar.', 'error');
-    }
-  };
-
-  const iniciarAnimacion = () => {
-    setModoPresentacion(true);
-    setAnimando(true);
-    setTimeout(() => setAnimando(false), 800); 
-  };
-
-  if (!modoPresentacion) {
-    return (
-      <div style={{ width: '100%', padding: '20px' }}>
-        <header style={{ marginBottom: '30px', textAlign: 'center' }}>
-          <h2 style={{ fontSize: '2.2rem', color: '#1E293B', margin: '0 0 10px 0', fontWeight: '900' }}>Preparar Pizarra</h2>
-          <p style={{ color: '#64748B', fontSize: '1.1rem' }}>Elige hasta 5 premios para hoy, o deja que el azar decida por ti.</p>
-        </header>
-
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-          {catalogo.map(premio => {
-            const estaSeleccionado = seleccionados.includes(premio.id);
-            return (
-              <div 
-                key={premio.id}
-                onClick={() => toggleSeleccion(premio.id)}
-                style={{ 
-                  border: `3px solid ${estaSeleccionado ? '#10B981' : '#E2E8F0'}`, 
-                  borderRadius: '16px', 
-                  padding: '20px', 
-                  backgroundColor: estaSeleccionado ? '#ECFDF5' : '#FFFFFF',
-                  cursor: 'pointer',
-                  position: 'relative',
-                  transition: 'all 0.2s',
-                  transform: estaSeleccionado ? 'scale(1.02)' : 'scale(1)',
-                  opacity: (!estaSeleccionado && seleccionados.length >= 5) ? 0.6 : 1
-                }}
-              >
-                {estaSeleccionado && (
-                  <div style={{ position: 'absolute', top: '-10px', right: '-10px', backgroundColor: '#10B981', color: 'white', width: '30px', height: '30px', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '1.2rem', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>✓</div>
-                )}
-                <div style={{ backgroundColor: '#F1F5F9', color: '#475569', display: 'inline-block', padding: '5px 12px', borderRadius: '12px', fontWeight: '800', fontSize: '0.9rem', marginBottom: '10px' }}>{premio.costo} PTS</div>
-                <h3 style={{ margin: '0 0 5px 0', color: '#1E293B', fontSize: '1.1rem' }}>{premio.nombre}</h3>
-              </div>
-            );
-          })}
-        </section>
-
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', backgroundColor: '#F8FAFC', padding: '25px', borderRadius: '20px', border: '1px solid #E2E8F0' }}>
-          <button 
-            onClick={presentarAzar}
-            style={{ padding: '15px 30px', backgroundColor: '#F59E0B', color: 'white', border: 'none', borderRadius: '15px', fontWeight: '900', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(245, 158, 11, 0.2)', transition: 'transform 0.1s' }}
-            onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'}
-            onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
-          >
-            🎲 Sorpréndelos (Al Azar)
-          </button>
-          
-          <button 
-            onClick={presentarSeleccion}
-            style={{ padding: '15px 30px', backgroundColor: '#6366F1', color: 'white', border: 'none', borderRadius: '15px', fontWeight: '900', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(99, 102, 241, 0.2)', transition: 'transform 0.1s', opacity: seleccionados.length === 0 ? 0.5 : 1 }}
-            disabled={seleccionados.length === 0}
-            onMouseDown={(e) => seleccionados.length > 0 && (e.currentTarget.style.transform = 'scale(0.95)')}
-            onMouseUp={(e) => seleccionados.length > 0 && (e.currentTarget.style.transform = 'scale(1)')}
-          >
-            📺 Presentar Seleccionados ({seleccionados.length}/5)
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ================= RENDER DE LA PANTALLA DE PRESENTACIÓN =================
   return (
-    <div style={{ width: '100vw', height: '100vh', backgroundColor: '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, zIndex: 9999 }}>
-      
-      <button 
-        onClick={() => setModoPresentacion(false)}
-        style={{ position: 'absolute', top: '20px', left: '20px', backgroundColor: 'transparent', border: 'none', color: '#CBD5E1', fontSize: '1.5rem', cursor: 'pointer', transition: 'color 0.2s' }}
-        onMouseOver={(e) => e.currentTarget.style.color = '#64748B'}
-        onMouseOut={(e) => e.currentTarget.style.color = '#CBD5E1'}
-        title="Volver a Configuración"
-      >
-        ✖
-      </button>
-
-      <div style={{ textAlign: 'center', marginBottom: '50px', animation: animando ? 'fadeInDown 0.8s ease-out' : 'none' }}>
-        <h1 style={{ fontSize: '4rem', color: '#1E293B', margin: '0 0 10px 0', fontWeight: '900', textShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-          ✨ Premios del Día ✨
-        </h1>
-        <p style={{ fontSize: '1.5rem', color: '#64748B', margin: 0 }}>¡Esfuérzate para conseguir estos beneficios en la clase de hoy!</p>
-      </div>
-
-      <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', justifyContent: 'center', perspective: '1000px', maxWidth: '1400px', padding: '0 20px' }}>
-        {premiosPizarra.map((premio, index) => (
-          <div 
-            key={premio.id} 
-            style={{ 
-              width: '260px', 
-              height: '380px', 
-              backgroundColor: '#6366F1', 
-              borderRadius: '24px', 
-              display: 'flex', 
-              flexDirection: 'column', 
-              alignItems: 'center', 
-              padding: '30px 20px',
-              boxShadow: '0 25px 50px -12px rgba(99, 102, 241, 0.4)',
-              animation: animando ? `flipInY 0.6s ease-out ${index * 0.15}s both` : 'none',
-              border: '4px solid #818CF8'
-            }}
+    <div className="p-8 min-h-screen bg-slate-950 text-white font-sans">
+      {/* HEADER INTERACTIVO */}
+      <header className="flex flex-col md:flex-row justify-between items-center mb-16 gap-6">
+        <div>
+          <h1 className="text-5xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
+            MODO PIZARRA
+          </h1>
+          <p className="text-slate-500 font-medium mt-2">Selecciona un premio para realizar un canje rápido.</p>
+        </div>
+        
+        <div className="bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-2xl">
+          <select 
+            value={cursoSeleccionado} 
+            onChange={(e) => setCursoSeleccionado(e.target.value)}
+            className="bg-transparent px-6 py-3 rounded-xl text-indigo-300 font-bold outline-none cursor-pointer min-w-[250px]"
           >
-            <div style={{ backgroundColor: '#FCD34D', color: '#92400E', padding: '10px 25px', borderRadius: '25px', fontWeight: '900', fontSize: '1.4rem', marginBottom: '40px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-              {premio.costo} PTS
-            </div>
-            <h2 style={{ color: 'white', fontSize: '1.8rem', textAlign: 'center', margin: 0, fontWeight: '900', lineHeight: '1.2' }}>
-              {premio.nombre}
-            </h2>
-          </div>
-        ))}
-      </div>
+            <option value="" className="bg-slate-900 text-slate-400">--- Elegir Curso ---</option>
+            {cursos.map(c => (
+              <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                {c.nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+      </header>
 
-      <style>
-        {`
-          @keyframes fadeInDown {
-            from { opacity: 0; transform: translateY(-30px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          @keyframes flipInY {
-            from { opacity: 0; transform: rotateY(90deg); }
-            to { opacity: 1; transform: rotateY(0deg); }
-          }
-        `}
-      </style>
+      {/* REJILLA DE PREMIOS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10">
+        {recompensas.length > 0 ? (
+          recompensas.map(premio => (
+            <div 
+              key={premio.id}
+              onClick={() => confirmarCompra(premio)}
+              className="group relative bg-slate-900 border-2 border-slate-800 p-10 rounded-[2.5rem] cursor-pointer hover:border-indigo-500 hover:scale-[1.02] transition-all duration-300 shadow-xl"
+            >
+              {/* Etiqueta de Costo */}
+              <div className="absolute -top-5 -right-3 bg-gradient-to-br from-indigo-500 to-purple-600 px-6 py-2 rounded-2xl font-black text-xl shadow-2xl transform group-hover:rotate-6 transition-transform">
+                {premio.costo} <span className="text-xs opacity-80">PTS</span>
+              </div>
+
+              <h3 className="text-3xl font-extrabold mb-4 text-slate-100 group-hover:text-indigo-400 transition-colors">
+                {premio.nombre}
+              </h3>
+              
+              <p className="text-slate-400 text-lg leading-relaxed mb-8">
+                {premio.descripcion || "Sin descripción disponible."}
+              </p>
+
+              <div className="flex items-center gap-3 text-indigo-500 font-bold text-sm uppercase tracking-[0.2em]">
+                <span className="w-8 h-[2px] bg-indigo-500"></span>
+                Tocar para canjear
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="col-span-full text-center py-20 bg-slate-900/50 rounded-[3rem] border border-dashed border-slate-800">
+            <p className="text-2xl text-slate-600 font-bold italic">No hay premios activos en la pizarra.</p>
+            <p className="text-slate-700 mt-2">Activa premios desde la sección de Recompensas.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
