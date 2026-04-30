@@ -244,42 +244,62 @@ def comprar_recompensa(req: CompraRequest, usuario = Depends(verificar_token)):
         conn.close()
 
 # ==========================================
-# 10. RUTAS: MODO PIZARRA (Interactivo)
+# 10. RUTAS: MODO PIZARRA (Actualizado)
 # ==========================================
-@app.get("/recompensas/clase")
-def obtener_recompensas_clase(usuario = Depends(verificar_token)):
+
+# Esta ruta es la que te daba el error 404 al presionar "Presentar Seleccionados"
+@app.post("/recompensas/clase/seleccionar")
+def seleccionar_recompensas_clase(req: SeleccionRecompensasRequest, usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    # Se incluye el CostoPuntos para que la pizarra pueda procesar compras
-    cursor.execute("SELECT RecompensaID, NombreRecompensa, Descripcion, CostoPuntos FROM Recompensas WHERE ActivaParaClase = 1")
-    recompensas = [{"id": r[0], "nombre": r[1], "descripcion": r[2], "costo": r[3]} for r in cursor.fetchall()]
-    cursor.close()
-    conn.close()
-    return recompensas
+    try:
+        # Primero desactivamos todos para la pizarra
+        cursor.execute("UPDATE Recompensas SET ActivaParaClase = 0")
+        
+        # Activamos solo los IDs que seleccionaste en el Frontend
+        if req.ids:
+            # Creamos los placeholders (%s, %s, ...) según la cantidad de IDs
+            placeholders = ','.join(['%s'] * len(req.ids))
+            query = f"UPDATE Recompensas SET ActivaParaClase = 1 WHERE RecompensaID IN ({placeholders})"
+            cursor.execute(query, tuple(req.ids))
+        
+        conn.commit()
+        return {"mensaje": "Premios actualizados para la pizarra"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 
+# Esta ruta es la que te daba error 404 al presionar "Al Azar"
 @app.post("/recompensas/azar")
 def recompensas_al_azar(usuario = Depends(verificar_token)):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # Desactivamos actuales
         cursor.execute("UPDATE Recompensas SET ActivaParaClase = 0")
-        cursor.execute("UPDATE Recompensas SET ActivaParaClase = 1 WHERE RecompensaID IN (SELECT RecompensaID FROM Recompensas ORDER BY RANDOM() LIMIT 3)")
+        
+        # Seleccionamos 3 al azar y los activamos (Sintaxis específica para PostgreSQL/Neon)
+        cursor.execute("""
+            UPDATE Recompensas 
+            SET ActivaParaClase = 1 
+            WHERE RecompensaID IN (
+                SELECT RecompensaID FROM Recompensas 
+                ORDER BY RANDOM() 
+                LIMIT 3
+            )
+        """)
         conn.commit()
+        
+        # Devolvemos los premios elegidos para que el Frontend los muestre de inmediato
         cursor.execute("SELECT RecompensaID, NombreRecompensa, Descripcion, CostoPuntos FROM Recompensas WHERE ActivaParaClase = 1")
         recompensas = [{"id": r[0], "nombre": r[1], "descripcion": r[2], "costo": r[3]} for r in cursor.fetchall()]
         return recompensas
-    finally:
-        cursor.close()
-        conn.close()
-
-@app.post("/canjes/{canje_id}/usar")
-def usar_recompensa(canje_id: int, usuario = Depends(verificar_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("UPDATE HistorialCanjes SET EstadoCanje = 'Usado', FechaUso = CURRENT_TIMESTAMP WHERE CanjeID = %s AND EstadoCanje = 'Disponible'", (canje_id,))
-        conn.commit()
-        return {"mensaje": "Utilizado"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         cursor.close()
         conn.close()
