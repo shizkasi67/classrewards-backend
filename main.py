@@ -72,6 +72,13 @@ class NuevaRecompensaRequest(BaseModel):
 class SeleccionPizarraRequest(BaseModel):
     ids: List[int]
 
+class ConfirmarActividadRequest(BaseModel):
+    nombre: str
+    fecha: str
+    puntos: int
+    curso_id: int
+    alumnos_realizaron: List[int]
+
 # ALMACÉN TEMPORAL PARA LA PIZARRA (Para que respete tu selección manual)
 pizarra_seleccionada = []
 
@@ -263,3 +270,91 @@ def usar(id: int, u=Depends(verificar_token)):
     cursor.execute("UPDATE HistorialCanjes SET EstadoCanje = 'Usado', FechaUso = CURRENT_TIMESTAMP WHERE CanjeID = %s", (id,))
     conn.commit(); conn.close()
     return {"ok": True}
+
+# ==========================================
+# 10. ACTIVIDADES
+# ==========================================
+@app.post("/actividades/confirmar")
+def confirmar_actividad(req: ConfirmarActividadRequest, u=Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    try:
+        # Crear la actividad
+        cursor.execute(
+            "INSERT INTO Actividades (NombreActividad, Fecha, PuntosOtorgados, CursoID) VALUES (%s, %s, %s, %s) RETURNING ActividadID",
+            (req.nombre, req.fecha, req.puntos, req.curso_id)
+        )
+        actividad_id = cursor.fetchone()[0]
+
+        # Obtener todos los alumnos del curso para registrar quién sí y quién no
+        cursor.execute("SELECT AlumnoID FROM Alumnos WHERE CursoID = %s", (req.curso_id,))
+        todos_ids = {r[0] for r in cursor.fetchall()}
+        realizaron_set = set(req.alumnos_realizaron)
+
+        for alumno_id in todos_ids:
+            realizo = alumno_id in realizaron_set
+            cursor.execute(
+                "INSERT INTO RegistroActividades (ActividadID, AlumnoID, Realizo) VALUES (%s, %s, %s)",
+                (actividad_id, alumno_id, realizo)
+            )
+
+        # Sumar puntos a quienes realizaron la actividad
+        if req.alumnos_realizaron:
+            cursor.execute(
+                "UPDATE Alumnos SET Puntos = Puntos + %s WHERE AlumnoID = ANY(%s)",
+                (req.puntos, req.alumnos_realizaron)
+            )
+            for alumno_id in req.alumnos_realizaron:
+                cursor.execute(
+                    "INSERT INTO HistorialPuntos (AlumnoID, CursoID, Cantidad, Motivo) VALUES (%s, %s, %s, %s)",
+                    (alumno_id, req.curso_id, req.puntos, f"Actividad: {req.nombre}")
+                )
+
+        conn.commit()
+        return {"ok": True, "actividad_id": actividad_id}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+@app.get("/cursos/{curso_id}/actividades")
+def listar_actividades(curso_id: int, u=Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    cursor.execute(
+        "SELECT ActividadID, NombreActividad, Fecha, PuntosOtorgados FROM Actividades WHERE CursoID = %s ORDER BY Fecha DESC, ActividadID DESC",
+        (curso_id,)
+    )
+    res = [{"id": r[0], "nombre": r[1], "fecha": r[2].strftime("%d/%m/%Y"), "puntos": r[3]} for r in cursor.fetchall()]
+    conn.close()
+    return res
+
+@app.get("/actividades/{actividad_id}/detalle")
+def detalle_actividad(actividad_id: int, u=Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    cursor.execute(
+        "SELECT NombreActividad, Fecha, PuntosOtorgados FROM Actividades WHERE ActividadID = %s",
+        (actividad_id,)
+    )
+    act = cursor.fetchone()
+    if not act:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
+
+    cursor.execute(
+        "SELECT a.AlumnoID, a.Nombre || ' ' || a.Apellido, ra.Realizo FROM RegistroActividades ra JOIN Alumnos a ON ra.AlumnoID = a.AlumnoID WHERE ra.ActividadID = %s ORDER BY a.Apellido ASC",
+        (actividad_id,)
+    )
+    registros = cursor.fetchall()
+    conn.close()
+
+    realizaron = [{"id": r[0], "nombre": r[1]} for r in registros if r[2]]
+    no_realizaron = [{"id": r[0], "nombre": r[1]} for r in registros if not r[2]]
+
+    return {
+        "id": actividad_id,
+        "nombre": act[0],
+        "fecha": act[1].strftime("%d/%m/%Y"),
+        "puntos": act[2],
+        "realizaron": realizaron,
+        "no_realizaron": no_realizaron
+    }
