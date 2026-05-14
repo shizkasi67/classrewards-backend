@@ -79,6 +79,9 @@ class ConfirmarActividadRequest(BaseModel):
     curso_id: int
     alumnos_realizaron: List[int]
 
+class ActualizarActividadRequest(BaseModel):
+    alumnos_realizaron: List[int]
+
 # ALMACÉN TEMPORAL PARA LA PIZARRA (Para que respete tu selección manual)
 pizarra_seleccionada = []
 
@@ -285,16 +288,11 @@ def confirmar_actividad(req: ConfirmarActividadRequest, u=Depends(verificar_toke
         )
         actividad_id = cursor.fetchone()[0]
 
-        # Obtener todos los alumnos del curso para registrar quién sí y quién no
-        cursor.execute("SELECT AlumnoID FROM Alumnos WHERE CursoID = %s", (req.curso_id,))
-        todos_ids = {r[0] for r in cursor.fetchall()}
-        realizaron_set = set(req.alumnos_realizaron)
-
-        for alumno_id in todos_ids:
-            realizo = alumno_id in realizaron_set
+        # Solo registrar quienes SÍ realizaron (sin marcar = no realizó, no ocupa espacio)
+        for alumno_id in req.alumnos_realizaron:
             cursor.execute(
-                "INSERT INTO RegistroActividades (ActividadID, AlumnoID, Realizo) VALUES (%s, %s, %s)",
-                (actividad_id, alumno_id, realizo)
+                "INSERT INTO RegistroActividades (ActividadID, AlumnoID) VALUES (%s, %s)",
+                (actividad_id, alumno_id)
             )
 
         # Sumar puntos a quienes realizaron la actividad
@@ -311,6 +309,49 @@ def confirmar_actividad(req: ConfirmarActividadRequest, u=Depends(verificar_toke
 
         conn.commit()
         return {"ok": True, "actividad_id": actividad_id}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+@app.put("/actividades/{actividad_id}/actualizar")
+def actualizar_actividad(actividad_id: int, req: ActualizarActividadRequest, u=Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT PuntosOtorgados, CursoID, NombreActividad FROM Actividades WHERE ActividadID = %s", (actividad_id,))
+        act = cursor.fetchone()
+        if not act:
+            raise HTTPException(status_code=404, detail="Actividad no encontrada")
+        puntos, curso_id, nombre = act
+
+        # Quiénes realizaban antes vs. quiénes realizan ahora
+        cursor.execute("SELECT AlumnoID FROM RegistroActividades WHERE ActividadID = %s", (actividad_id,))
+        old_realizaron = {r[0] for r in cursor.fetchall()}
+        new_realizaron = set(req.alumnos_realizaron)
+
+        agregados = new_realizaron - old_realizaron   # ahora sí, antes no → sumar puntos
+        quitados  = old_realizaron - new_realizaron   # antes sí, ahora no → restar puntos
+
+        for alumno_id in agregados:
+            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE AlumnoID = %s", (puntos, alumno_id))
+            cursor.execute("INSERT INTO HistorialPuntos (AlumnoID, CursoID, Cantidad, Motivo) VALUES (%s, %s, %s, %s)",
+                           (alumno_id, curso_id, puntos, f"Actividad (agregado tarde): {nombre}"))
+
+        for alumno_id in quitados:
+            cursor.execute("UPDATE Alumnos SET Puntos = Puntos - %s WHERE AlumnoID = %s", (puntos, alumno_id))
+            cursor.execute("INSERT INTO HistorialPuntos (AlumnoID, CursoID, Cantidad, Motivo) VALUES (%s, %s, %s, %s)",
+                           (alumno_id, curso_id, -puntos, f"Actividad (corregida): {nombre}"))
+
+        # Reemplazar registros
+        cursor.execute("DELETE FROM RegistroActividades WHERE ActividadID = %s", (actividad_id,))
+        for alumno_id in new_realizaron:
+            cursor.execute("INSERT INTO RegistroActividades (ActividadID, AlumnoID) VALUES (%s, %s)", (actividad_id, alumno_id))
+
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -341,20 +382,17 @@ def detalle_actividad(actividad_id: int, u=Depends(verificar_token)):
         raise HTTPException(status_code=404, detail="Actividad no encontrada")
 
     cursor.execute(
-        "SELECT a.AlumnoID, a.Nombre || ' ' || a.Apellido, ra.Realizo FROM RegistroActividades ra JOIN Alumnos a ON ra.AlumnoID = a.AlumnoID WHERE ra.ActividadID = %s ORDER BY a.Apellido ASC",
+        "SELECT a.AlumnoID, a.Nombre || ' ' || a.Apellido FROM RegistroActividades ra JOIN Alumnos a ON ra.AlumnoID = a.AlumnoID WHERE ra.ActividadID = %s ORDER BY a.Apellido ASC",
         (actividad_id,)
     )
-    registros = cursor.fetchall()
     conn.close()
 
-    realizaron = [{"id": r[0], "nombre": r[1]} for r in registros if r[2]]
-    no_realizaron = [{"id": r[0], "nombre": r[1]} for r in registros if not r[2]]
+    realizaron = [{"id": r[0], "nombre": r[1]} for r in cursor.fetchall()]
 
     return {
         "id": actividad_id,
         "nombre": act[0],
         "fecha": act[1].strftime("%d/%m/%Y"),
         "puntos": act[2],
-        "realizaron": realizaron,
-        "no_realizaron": no_realizaron
+        "realizaron": realizaron
     }

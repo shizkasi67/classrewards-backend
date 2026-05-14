@@ -8,22 +8,27 @@ export default function Actividades() {
   const [alumnos, setAlumnos] = useState([]);
   const [cargando, setCargando] = useState(false);
 
-  // Actividad en preparación (solo en memoria hasta confirmar)
+  // Actividad en preparación (en memoria hasta confirmar)
   const [actividadActual, setActividadActual] = useState(null);
-  const [marcas, setMarcas] = useState({});
+  const [marcas, setMarcas] = useState({}); // { alumnoId: true } — solo quienes SÍ realizaron
 
   // Modal nueva actividad
   const [modalNuevaActividad, setModalNuevaActividad] = useState(false);
   const [nombreActividad, setNombreActividad] = useState('');
   const [fechaActividad, setFechaActividad] = useState('');
   const [puntosActividad, setPuntosActividad] = useState('');
+  const [confirmando, setConfirmando] = useState(false);
 
   // Historial
   const [modalHistorial, setModalHistorial] = useState(false);
   const [historialActividades, setHistorialActividades] = useState([]);
   const [actividadDetalle, setActividadDetalle] = useState(null);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
-  const [confirmando, setConfirmando] = useState(false);
+
+  // Edición de actividad histórica
+  const [modoEdicion, setModoEdicion] = useState(false);
+  const [marcasEdicion, setMarcasEdicion] = useState({});
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
   useEffect(() => {
     const cargarCursos = async () => {
@@ -76,22 +81,22 @@ export default function Actividades() {
     setModalNuevaActividad(false);
   };
 
-  const marcarAlumno = (alumnoId, valor) => {
-    setMarcas(prev => ({ ...prev, [alumnoId]: prev[alumnoId] === valor ? null : valor }));
+  // Marcar/desmarcar alumno — solo "sí realizó"; sin marca = no realizó
+  const toggleMarca = (alumnoId) => {
+    setMarcas(prev => ({ ...prev, [alumnoId]: !prev[alumnoId] }));
   };
 
   const confirmarActividad = async () => {
     if (!actividadActual) return;
-    const alumnosRealizaron = alumnos.filter(a => marcas[a.id] === 'si').map(a => a.id);
-    const totalMarcados = alumnos.filter(a => marcas[a.id] != null).length;
+    const alumnosRealizaron = alumnos.filter(a => marcas[a.id]).map(a => a.id);
 
-    if (totalMarcados === 0) {
-      return Swal.fire({ title: 'Sin marcas', text: 'Marca a los alumnos antes de confirmar.', icon: 'warning', confirmButtonColor: '#6366F1' });
+    if (alumnosRealizaron.length === 0) {
+      return Swal.fire({ title: 'Sin marcas', text: 'Marca al menos un alumno antes de confirmar.', icon: 'warning', confirmButtonColor: '#6366F1' });
     }
 
     const result = await Swal.fire({
       title: '¿Confirmar actividad?',
-      html: `Se otorgarán <b>${actividadActual.puntos} puntos</b> a <b>${alumnosRealizaron.length}</b> estudiante${alumnosRealizaron.length !== 1 ? 's' : ''} por la actividad:<br/><br/><b>"${actividadActual.nombre}"</b>`,
+      html: `Se otorgarán <b>${actividadActual.puntos} puntos</b> a <b>${alumnosRealizaron.length}</b> estudiante${alumnosRealizaron.length !== 1 ? 's' : ''} por:<br/><br/><b>"${actividadActual.nombre}"</b>`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#6366F1',
@@ -121,7 +126,6 @@ export default function Actividades() {
       });
       setActividadActual(null);
       setMarcas({});
-      // Refrescar puntos de los alumnos
       const res = await api.get(`/cursos/${cursoActual}/alumnos`);
       setAlumnos(res.data);
     } catch (err) {
@@ -134,6 +138,7 @@ export default function Actividades() {
   const abrirHistorial = async () => {
     if (!cursoActual) return;
     setActividadDetalle(null);
+    setModoEdicion(false);
     setCargandoHistorial(true);
     setModalHistorial(true);
     try {
@@ -147,6 +152,7 @@ export default function Actividades() {
   };
 
   const verDetalleActividad = async (actividad) => {
+    setModoEdicion(false);
     try {
       const res = await api.get(`/actividades/${actividad.id}/detalle`);
       setActividadDetalle(res.data);
@@ -155,9 +161,41 @@ export default function Actividades() {
     }
   };
 
-  const totalSi = alumnos.filter(a => marcas[a.id] === 'si').length;
-  const totalNo = alumnos.filter(a => marcas[a.id] === 'no').length;
-  const totalSinMarcar = alumnos.length - totalSi - totalNo;
+  const entrarModoEdicion = () => {
+    const realizaronIds = new Set(actividadDetalle.realizaron.map(a => a.id));
+    const marcasIniciales = {};
+    alumnos.forEach(a => { marcasIniciales[a.id] = realizaronIds.has(a.id); });
+    setMarcasEdicion(marcasIniciales);
+    setModoEdicion(true);
+  };
+
+  const guardarEdicion = async () => {
+    const alumnosRealizaron = Object.entries(marcasEdicion)
+      .filter(([, v]) => v)
+      .map(([k]) => Number(k));
+
+    setGuardandoEdicion(true);
+    try {
+      await api.put(`/actividades/${actividadDetalle.id}/actualizar`, {
+        alumnos_realizaron: alumnosRealizaron
+      });
+      // Refrescar detalle y puntos de alumnos
+      const [detalle, alumnosActualizados] = await Promise.all([
+        api.get(`/actividades/${actividadDetalle.id}/detalle`),
+        api.get(`/cursos/${cursoActual}/alumnos`)
+      ]);
+      setActividadDetalle(detalle.data);
+      setAlumnos(alumnosActualizados.data);
+      setModoEdicion(false);
+      Swal.fire({ title: '¡Guardado!', text: 'La actividad fue actualizada.', icon: 'success', timer: 1500, showConfirmButton: false });
+    } catch (err) {
+      Swal.fire({ title: 'Error', text: 'No se pudo actualizar la actividad.', icon: 'error', confirmButtonColor: '#EF4444' });
+    } finally {
+      setGuardandoEdicion(false);
+    }
+  };
+
+  const totalSi = alumnos.filter(a => marcas[a.id]).length;
 
   return (
     <div style={{ width: '100%' }}>
@@ -181,7 +219,7 @@ export default function Actividades() {
         </div>
       </header>
 
-      {/* BANNER DE ACTIVIDAD ACTIVA */}
+      {/* BANNER ACTIVIDAD ACTIVA */}
       {actividadActual && (
         <div style={{ backgroundColor: '#EEF2FF', border: '2px solid #6366F1', borderRadius: '15px', padding: '15px 25px', marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
@@ -194,9 +232,9 @@ export default function Actividades() {
         </div>
       )}
 
-      {/* ESTADO VACÍO (sin actividad activa) */}
+      {/* ESTADO VACÍO */}
       {!actividadActual && (
-        <div style={{ backgroundColor: '#EEF2FF', border: '2px dashed #A5B4FC', borderRadius: '20px', padding: '60px 40px', textAlign: 'center', color: '#6366F1', marginBottom: '25px' }}>
+        <div style={{ backgroundColor: '#EEF2FF', border: '2px dashed #A5B4FC', borderRadius: '20px', padding: '60px 40px', textAlign: 'center', marginBottom: '25px' }}>
           <div style={{ fontSize: '3.5rem', marginBottom: '15px' }}>📝</div>
           <h3 style={{ margin: '0 0 10px 0', fontWeight: '800', fontSize: '1.4rem', color: '#1E293B' }}>Sin actividad activa</h3>
           <p style={{ margin: '0 0 25px 0', color: '#818CF8', fontSize: '1rem' }}>
@@ -213,34 +251,34 @@ export default function Actividades() {
         <div style={{ backgroundColor: '#FFFFFF', borderRadius: '20px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.07)' }}>
 
           {/* Encabezado tabla */}
-          <div style={{ backgroundColor: '#1E293B', padding: '16px 25px', display: 'grid', gridTemplateColumns: '1fr 130px 130px', gap: '10px', alignItems: 'center' }}>
+          <div style={{ backgroundColor: '#1E293B', padding: '16px 25px', display: 'grid', gridTemplateColumns: '1fr 100px', gap: '10px', alignItems: 'center' }}>
             <span style={{ color: '#94A3B8', fontWeight: '800', fontSize: '0.8rem', letterSpacing: '1px', textTransform: 'uppercase' }}>Estudiante</span>
             <span style={{ color: '#34D399', fontWeight: '800', fontSize: '0.8rem', textAlign: 'center', letterSpacing: '1px', textTransform: 'uppercase' }}>✓ Realizó</span>
-            <span style={{ color: '#F87171', fontWeight: '800', fontSize: '0.8rem', textAlign: 'center', letterSpacing: '1px', textTransform: 'uppercase' }}>✗ No Realizó</span>
           </div>
 
-          {/* Filas de alumnos */}
+          {/* Filas — toda la fila es clickeable */}
           {alumnos.map((alumno, index) => {
-            const marca = marcas[alumno.id];
+            const hizo = marcas[alumno.id] === true;
             return (
               <div
                 key={alumno.id}
+                onClick={() => toggleMarca(alumno.id)}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr 130px 130px',
+                  gridTemplateColumns: '1fr 100px',
                   gap: '10px',
                   alignItems: 'center',
                   padding: '14px 25px',
-                  backgroundColor: marca === 'si' ? '#F0FDF4' : marca === 'no' ? '#FFF1F2' : index % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
+                  backgroundColor: hizo ? '#F0FDF4' : index % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
                   borderBottom: '1px solid #F1F5F9',
+                  cursor: 'pointer',
                   transition: 'background-color 0.15s'
                 }}
               >
-                {/* Nombre */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                   <div style={{
                     width: '38px', height: '38px', borderRadius: '50%', flexShrink: 0,
-                    backgroundColor: marca === 'si' ? '#10B981' : marca === 'no' ? '#EF4444' : '#6366F1',
+                    backgroundColor: hizo ? '#10B981' : '#6366F1',
                     color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center',
                     fontWeight: '800', fontSize: '1rem', transition: 'background-color 0.15s'
                   }}>
@@ -249,60 +287,37 @@ export default function Actividades() {
                   <span style={{ fontWeight: '700', color: '#1E293B', fontSize: '1rem' }}>{alumno.nombre}</span>
                 </div>
 
-                {/* Botón Sí */}
                 <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <button
-                    onClick={() => marcarAlumno(alumno.id, 'si')}
-                    title="Realizó la actividad"
-                    style={{
-                      width: '42px', height: '42px', borderRadius: '50%',
-                      border: `2px solid ${marca === 'si' ? '#10B981' : '#CBD5E1'}`,
-                      backgroundColor: marca === 'si' ? '#10B981' : 'transparent',
-                      color: marca === 'si' ? 'white' : '#CBD5E1',
-                      cursor: 'pointer', fontSize: '1.1rem',
-                      display: 'flex', justifyContent: 'center', alignItems: 'center',
-                      transition: 'all 0.15s', fontWeight: 'bold'
-                    }}
-                  >✓</button>
-                </div>
-
-                {/* Botón No */}
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <button
-                    onClick={() => marcarAlumno(alumno.id, 'no')}
-                    title="No realizó la actividad"
-                    style={{
-                      width: '42px', height: '42px', borderRadius: '50%',
-                      border: `2px solid ${marca === 'no' ? '#EF4444' : '#CBD5E1'}`,
-                      backgroundColor: marca === 'no' ? '#EF4444' : 'transparent',
-                      color: marca === 'no' ? 'white' : '#CBD5E1',
-                      cursor: 'pointer', fontSize: '1.1rem',
-                      display: 'flex', justifyContent: 'center', alignItems: 'center',
-                      transition: 'all 0.15s', fontWeight: 'bold'
-                    }}
-                  >✗</button>
+                  <div style={{
+                    width: '42px', height: '42px', borderRadius: '50%',
+                    border: `2px solid ${hizo ? '#10B981' : '#CBD5E1'}`,
+                    backgroundColor: hizo ? '#10B981' : 'transparent',
+                    color: hizo ? 'white' : '#CBD5E1',
+                    display: 'flex', justifyContent: 'center', alignItems: 'center',
+                    transition: 'all 0.15s', fontWeight: 'bold', fontSize: '1.1rem',
+                    userSelect: 'none'
+                  }}>✓</div>
                 </div>
               </div>
             );
           })}
 
-          {/* Pie: resumen + botón confirmar */}
+          {/* Pie: resumen + confirmar */}
           <div style={{ padding: '20px 25px', backgroundColor: '#F8FAFC', borderTop: '2px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
               <span style={{ color: '#10B981', fontWeight: '700', fontSize: '0.95rem' }}>✓ {totalSi} realizaron</span>
-              <span style={{ color: '#EF4444', fontWeight: '700', fontSize: '0.95rem' }}>✗ {totalNo} no realizaron</span>
-              <span style={{ color: '#94A3B8', fontWeight: '600', fontSize: '0.95rem' }}>○ {totalSinMarcar} sin marcar</span>
+              <span style={{ color: '#94A3B8', fontWeight: '600', fontSize: '0.95rem' }}>○ {alumnos.length - totalSi} sin marcar</span>
             </div>
             <button
               onClick={confirmarActividad}
-              disabled={totalSi + totalNo === 0 || confirmando}
+              disabled={totalSi === 0 || confirmando}
               style={{
                 padding: '14px 35px',
-                backgroundColor: totalSi + totalNo > 0 && !confirmando ? '#6366F1' : '#CBD5E1',
+                backgroundColor: totalSi > 0 && !confirmando ? '#6366F1' : '#CBD5E1',
                 color: 'white', border: 'none', borderRadius: '12px',
-                fontWeight: '800', cursor: totalSi + totalNo > 0 && !confirmando ? 'pointer' : 'default',
+                fontWeight: '800', cursor: totalSi > 0 && !confirmando ? 'pointer' : 'default',
                 fontSize: '1rem', transition: 'all 0.2s',
-                boxShadow: totalSi + totalNo > 0 && !confirmando ? '0 4px 10px rgba(99, 102, 241, 0.35)' : 'none'
+                boxShadow: totalSi > 0 && !confirmando ? '0 4px 10px rgba(99, 102, 241, 0.35)' : 'none'
               }}
             >
               {confirmando ? 'Guardando...' : 'Confirmar Actividad ✓'}
@@ -319,7 +334,6 @@ export default function Actividades() {
           {modalNuevaActividad && (
             <form onSubmit={crearActividad} style={modalStyle}>
               <h2 style={modalTitleStyle}>Nueva Actividad</h2>
-
               <label style={labelStyle}>Nombre de la actividad:</label>
               <input
                 type="text"
@@ -327,10 +341,8 @@ export default function Actividades() {
                 value={nombreActividad}
                 onChange={(e) => setNombreActividad(e.target.value)}
                 style={inputFormStyle}
-                required
-                autoFocus
+                required autoFocus
               />
-
               <label style={labelStyle}>Fecha:</label>
               <input
                 type="date"
@@ -339,7 +351,6 @@ export default function Actividades() {
                 style={inputFormStyle}
                 required
               />
-
               <label style={labelStyle}>Puntos que otorga:</label>
               <input
                 type="number"
@@ -350,7 +361,6 @@ export default function Actividades() {
                 style={inputFormStyle}
                 required
               />
-
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
                 <button type="button" onClick={() => setModalNuevaActividad(false)} style={btnGhost('#64748B')}>Cancelar</button>
                 <button type="submit" style={btnStyle('#6366F1')}>Crear Actividad</button>
@@ -360,63 +370,116 @@ export default function Actividades() {
 
           {/* Modal: Historial */}
           {modalHistorial && (
-            <div style={{ ...modalStyle, maxWidth: '680px' }}>
+            <div style={{ ...modalStyle, maxWidth: '580px' }}>
+              {/* Header del modal */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', paddingBottom: '15px', borderBottom: '2px solid #F1F5F9' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {actividadDetalle && (
                     <button
-                      onClick={() => setActividadDetalle(null)}
-                      style={{ ...btnGhost('#6366F1'), padding: '6px 10px', fontSize: '0.95rem' }}
+                      onClick={() => { setActividadDetalle(null); setModoEdicion(false); }}
+                      style={{ ...btnGhost('#6366F1'), padding: '6px 8px', fontSize: '0.9rem' }}
                     >← Volver</button>
                   )}
-                  <h2 style={{ ...modalTitleStyle, margin: 0 }}>
-                    {actividadDetalle ? actividadDetalle.nombre : 'Historial de Actividades'}
+                  <h2 style={{ ...modalTitleStyle, margin: 0, fontSize: '1.3rem' }}>
+                    {!actividadDetalle && 'Historial de Actividades'}
+                    {actividadDetalle && !modoEdicion && actividadDetalle.nombre}
+                    {actividadDetalle && modoEdicion && 'Editar Actividad'}
                   </h2>
                 </div>
                 <button
-                  onClick={() => { setModalHistorial(false); setActividadDetalle(null); }}
+                  onClick={() => { setModalHistorial(false); setActividadDetalle(null); setModoEdicion(false); }}
                   style={{ background: 'transparent', border: 'none', fontSize: '1.4rem', color: '#94A3B8', cursor: 'pointer', lineHeight: 1 }}
                 >✕</button>
               </div>
 
-              {/* Vista de detalle de actividad */}
-              {actividadDetalle ? (
+              {/* Vista: detalle de actividad (solo realizaron) */}
+              {actividadDetalle && !modoEdicion && (
                 <div>
-                  <div style={{ backgroundColor: '#EEF2FF', borderRadius: '12px', padding: '15px 20px', marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span style={{ color: '#64748B', fontSize: '0.9rem' }}>📅 {actividadDetalle.fecha}</span>
-                    <span style={{ backgroundColor: '#FEF3C7', color: '#D97706', padding: '3px 12px', borderRadius: '10px', fontWeight: '800', fontSize: '0.9rem' }}>+{actividadDetalle.puntos} pts</span>
+                  <div style={{ backgroundColor: '#EEF2FF', borderRadius: '12px', padding: '14px 18px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ color: '#64748B', fontSize: '0.9rem' }}>📅 {actividadDetalle.fecha}</span>
+                      <span style={{ backgroundColor: '#FEF3C7', color: '#D97706', padding: '3px 12px', borderRadius: '10px', fontWeight: '800', fontSize: '0.875rem' }}>+{actividadDetalle.puntos} pts</span>
+                    </div>
+                    <button onClick={entrarModoEdicion} style={{ ...btnStyle('#6366F1'), padding: '8px 16px', fontSize: '0.875rem' }}>✏️ Editar</button>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', maxHeight: '50vh', overflowY: 'auto' }}>
-                    <div>
-                      <h4 style={{ color: '#10B981', margin: '0 0 12px 0', fontWeight: '800', fontSize: '0.95rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        ✓ Realizaron ({actividadDetalle.realizaron?.length || 0})
-                      </h4>
-                      {actividadDetalle.realizaron?.length === 0 && (
-                        <p style={{ color: '#94A3B8', fontSize: '0.9rem', fontStyle: 'italic' }}>Ninguno</p>
-                      )}
-                      {actividadDetalle.realizaron?.map(a => (
-                        <div key={a.id} style={{ padding: '9px 14px', backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '10px', marginBottom: '8px', color: '#065F46', fontWeight: '600', fontSize: '0.95rem' }}>
-                          {a.nombre}
-                        </div>
-                      ))}
-                    </div>
-                    <div>
-                      <h4 style={{ color: '#EF4444', margin: '0 0 12px 0', fontWeight: '800', fontSize: '0.95rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        ✗ No Realizaron ({actividadDetalle.no_realizaron?.length || 0})
-                      </h4>
-                      {actividadDetalle.no_realizaron?.length === 0 && (
-                        <p style={{ color: '#94A3B8', fontSize: '0.9rem', fontStyle: 'italic' }}>Ninguno</p>
-                      )}
-                      {actividadDetalle.no_realizaron?.map(a => (
-                        <div key={a.id} style={{ padding: '9px 14px', backgroundColor: '#FFF1F2', border: '1px solid #FECDD3', borderRadius: '10px', marginBottom: '8px', color: '#9F1239', fontWeight: '600', fontSize: '0.95rem' }}>
-                          {a.nombre}
-                        </div>
-                      ))}
-                    </div>
+
+                  <h4 style={{ color: '#10B981', margin: '0 0 12px 0', fontWeight: '800', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    ✓ Realizaron ({actividadDetalle.realizaron?.length || 0})
+                  </h4>
+                  <div style={{ maxHeight: '50vh', overflowY: 'auto' }}>
+                    {actividadDetalle.realizaron?.length === 0 ? (
+                      <p style={{ color: '#94A3B8', fontSize: '0.9rem', fontStyle: 'italic', padding: '10px 0' }}>Ningún alumno registrado.</p>
+                    ) : actividadDetalle.realizaron?.map(a => (
+                      <div key={a.id} style={{ padding: '10px 15px', backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '10px', marginBottom: '8px', color: '#065F46', fontWeight: '600', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ color: '#10B981', fontWeight: '900', fontSize: '1rem' }}>✓</span>
+                        {a.nombre}
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ) : (
-                /* Vista de lista de actividades */
+              )}
+
+              {/* Vista: edición de actividad */}
+              {actividadDetalle && modoEdicion && (
+                <div>
+                  <p style={{ margin: '0 0 15px 0', color: '#64748B', fontSize: '0.9rem', lineHeight: '1.5' }}>
+                    Marca o desmarca alumnos. Los puntos se ajustan automáticamente al guardar.
+                  </p>
+                  <div style={{ maxHeight: '50vh', overflowY: 'auto', marginBottom: '20px' }}>
+                    {alumnos.map((alumno, index) => {
+                      const hizo = marcasEdicion[alumno.id] === true;
+                      return (
+                        <div
+                          key={alumno.id}
+                          onClick={() => setMarcasEdicion(prev => ({ ...prev, [alumno.id]: !prev[alumno.id] }))}
+                          style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '12px 15px',
+                            backgroundColor: hizo ? '#F0FDF4' : index % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
+                            border: hizo ? '1px solid #BBF7D0' : '1px solid #F1F5F9',
+                            borderRadius: '10px', marginBottom: '8px',
+                            cursor: 'pointer', transition: 'all 0.15s'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{
+                              width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0,
+                              backgroundColor: hizo ? '#10B981' : '#6366F1',
+                              color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center',
+                              fontWeight: '800', fontSize: '0.9rem', transition: 'background-color 0.15s'
+                            }}>
+                              {alumno.nombre.charAt(0)}
+                            </div>
+                            <span style={{ fontWeight: '700', color: '#1E293B', fontSize: '0.95rem' }}>{alumno.nombre}</span>
+                          </div>
+                          <div style={{
+                            width: '36px', height: '36px', borderRadius: '50%',
+                            border: `2px solid ${hizo ? '#10B981' : '#CBD5E1'}`,
+                            backgroundColor: hizo ? '#10B981' : 'transparent',
+                            color: hizo ? 'white' : '#CBD5E1',
+                            display: 'flex', justifyContent: 'center', alignItems: 'center',
+                            fontWeight: 'bold', fontSize: '1rem', transition: 'all 0.15s',
+                            userSelect: 'none', flexShrink: 0
+                          }}>✓</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                    <button onClick={() => setModoEdicion(false)} style={btnGhost('#64748B')}>Cancelar</button>
+                    <button
+                      onClick={guardarEdicion}
+                      disabled={guardandoEdicion}
+                      style={{ ...btnStyle('#6366F1'), opacity: guardandoEdicion ? 0.7 : 1 }}
+                    >
+                      {guardandoEdicion ? 'Guardando...' : 'Guardar Cambios'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Vista: lista del historial */}
+              {!actividadDetalle && (
                 <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: '4px' }}>
                   {cargandoHistorial ? (
                     <p style={{ textAlign: 'center', padding: '40px', color: '#64748B', fontWeight: '600' }}>Cargando...</p>
@@ -457,7 +520,6 @@ export default function Actividades() {
   );
 }
 
-// Estilos compartidos (consistentes con el resto de la app)
 const btnStyle = (bg) => ({ padding: '12px 20px', cursor: 'pointer', backgroundColor: bg, color: 'white', border: 'none', borderRadius: '12px', fontWeight: '800', transition: 'all 0.2s', whiteSpace: 'nowrap' });
 const btnGhost = (color) => ({ backgroundColor: 'transparent', color: color, border: 'none', fontWeight: '700', cursor: 'pointer', padding: '10px', whiteSpace: 'nowrap' });
 const overlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' };
