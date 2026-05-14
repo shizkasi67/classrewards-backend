@@ -384,9 +384,8 @@ def detalle_actividad(actividad_id: int, u=Depends(verificar_token)):
         "SELECT a.AlumnoID, a.Nombre || ' ' || a.Apellido FROM RegistroActividades ra JOIN Alumnos a ON ra.AlumnoID = a.AlumnoID WHERE ra.ActividadID = %s ORDER BY a.Apellido ASC",
         (actividad_id,)
     )
-    conn.close()
-
     realizaron = [{"id": r[0], "nombre": r[1]} for r in cursor.fetchall()]
+    conn.close()
 
     return {
         "id": actividad_id,
