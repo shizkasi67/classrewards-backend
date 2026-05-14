@@ -3,6 +3,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Tienda from './pages/Tienda';
 import Pizarra from './pages/Pizarra';
+import Actividades from './pages/actividades';
 
 export default function App() {
   // Estados principales de la aplicación
@@ -77,11 +78,17 @@ export default function App() {
               icono="🎁" 
               texto="Tienda de Premios" 
             />
-            <BotonNavegacion 
-              activo={pantallaActual === 'pizarra'} 
+            <BotonNavegacion
+              activo={pantallaActual === 'pizarra'}
               onClick={() => setPantallaActual('pizarra')}
-              icono="🎯" 
-              texto="Modo Pizarra" 
+              icono="🎯"
+              texto="Modo Pizarra"
+            />
+            <BotonNavegacion
+              activo={pantallaActual === 'actividades'}
+              onClick={() => setPantallaActual('actividades')}
+              icono="📝"
+              texto="Actividades"
             />
           </nav>
         </div>
@@ -114,6 +121,7 @@ export default function App() {
         {pantallaActual === 'dashboard' && <Dashboard />}
         {pantallaActual === 'tienda' && <Tienda />}
         {pantallaActual === 'pizarra' && <Pizarra />}
+        {pantallaActual === 'actividades' && <Actividades />}
       </main>
       
     </div>

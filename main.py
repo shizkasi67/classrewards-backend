@@ -20,8 +20,7 @@ app = FastAPI(title="Backend ClassRewards")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -71,6 +70,16 @@ class NuevaRecompensaRequest(BaseModel):
 
 class SeleccionPizarraRequest(BaseModel):
     ids: List[int]
+
+class ConfirmarActividadRequest(BaseModel):
+    nombre: str
+    fecha: str
+    puntos: int
+    curso_id: int
+    alumnos_realizaron: List[int]
+
+class ActualizarActividadRequest(BaseModel):
+    alumnos_realizaron: List[int]
 
 # ALMACÉN TEMPORAL PARA LA PIZARRA (Para que respete tu selección manual)
 pizarra_seleccionada = []
@@ -263,3 +272,125 @@ def usar(id: int, u=Depends(verificar_token)):
     cursor.execute("UPDATE HistorialCanjes SET EstadoCanje = 'Usado', FechaUso = CURRENT_TIMESTAMP WHERE CanjeID = %s", (id,))
     conn.commit(); conn.close()
     return {"ok": True}
+
+# ==========================================
+# 10. ACTIVIDADES
+# ==========================================
+@app.post("/actividades/confirmar")
+def confirmar_actividad(req: ConfirmarActividadRequest, u=Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    try:
+        # Crear la actividad
+        cursor.execute(
+            "INSERT INTO Actividades (NombreActividad, Fecha, PuntosOtorgados, CursoID) VALUES (%s, %s, %s, %s) RETURNING ActividadID",
+            (req.nombre, req.fecha, req.puntos, req.curso_id)
+        )
+        actividad_id = cursor.fetchone()[0]
+
+        # Solo registrar quienes SÍ realizaron (sin marcar = no realizó, no ocupa espacio)
+        for alumno_id in req.alumnos_realizaron:
+            cursor.execute(
+                "INSERT INTO RegistroActividades (ActividadID, AlumnoID) VALUES (%s, %s)",
+                (actividad_id, alumno_id)
+            )
+
+        # Sumar puntos a quienes realizaron la actividad
+        if req.alumnos_realizaron:
+            cursor.execute(
+                "UPDATE Alumnos SET Puntos = Puntos + %s WHERE AlumnoID = ANY(%s)",
+                (req.puntos, req.alumnos_realizaron)
+            )
+            for alumno_id in req.alumnos_realizaron:
+                cursor.execute(
+                    "INSERT INTO HistorialPuntos (AlumnoID, CursoID, Cantidad, Motivo) VALUES (%s, %s, %s, %s)",
+                    (alumno_id, req.curso_id, req.puntos, f"Actividad: {req.nombre}")
+                )
+
+        conn.commit()
+        return {"ok": True, "actividad_id": actividad_id}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+@app.put("/actividades/{actividad_id}/actualizar")
+def actualizar_actividad(actividad_id: int, req: ActualizarActividadRequest, u=Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT PuntosOtorgados, CursoID, NombreActividad FROM Actividades WHERE ActividadID = %s", (actividad_id,))
+        act = cursor.fetchone()
+        if not act:
+            raise HTTPException(status_code=404, detail="Actividad no encontrada")
+        puntos, curso_id, nombre = act
+
+        # Quiénes realizaban antes vs. quiénes realizan ahora
+        cursor.execute("SELECT AlumnoID FROM RegistroActividades WHERE ActividadID = %s", (actividad_id,))
+        old_realizaron = {r[0] for r in cursor.fetchall()}
+        new_realizaron = set(req.alumnos_realizaron)
+
+        agregados = new_realizaron - old_realizaron   # ahora sí, antes no → sumar puntos
+        quitados  = old_realizaron - new_realizaron   # antes sí, ahora no → restar puntos
+
+        for alumno_id in agregados:
+            cursor.execute("UPDATE Alumnos SET Puntos = Puntos + %s WHERE AlumnoID = %s", (puntos, alumno_id))
+            cursor.execute("INSERT INTO HistorialPuntos (AlumnoID, CursoID, Cantidad, Motivo) VALUES (%s, %s, %s, %s)",
+                           (alumno_id, curso_id, puntos, f"Actividad (agregado tarde): {nombre}"))
+
+        for alumno_id in quitados:
+            cursor.execute("UPDATE Alumnos SET Puntos = Puntos - %s WHERE AlumnoID = %s", (puntos, alumno_id))
+            cursor.execute("INSERT INTO HistorialPuntos (AlumnoID, CursoID, Cantidad, Motivo) VALUES (%s, %s, %s, %s)",
+                           (alumno_id, curso_id, -puntos, f"Actividad (corregida): {nombre}"))
+
+        # Reemplazar registros
+        cursor.execute("DELETE FROM RegistroActividades WHERE ActividadID = %s", (actividad_id,))
+        for alumno_id in new_realizaron:
+            cursor.execute("INSERT INTO RegistroActividades (ActividadID, AlumnoID) VALUES (%s, %s)", (actividad_id, alumno_id))
+
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+@app.get("/cursos/{curso_id}/actividades")
+def listar_actividades(curso_id: int, u=Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    cursor.execute(
+        "SELECT ActividadID, NombreActividad, Fecha, PuntosOtorgados FROM Actividades WHERE CursoID = %s ORDER BY Fecha DESC, ActividadID DESC",
+        (curso_id,)
+    )
+    res = [{"id": r[0], "nombre": r[1], "fecha": r[2].strftime("%d/%m/%Y"), "puntos": r[3]} for r in cursor.fetchall()]
+    conn.close()
+    return res
+
+@app.get("/actividades/{actividad_id}/detalle")
+def detalle_actividad(actividad_id: int, u=Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    cursor.execute(
+        "SELECT NombreActividad, Fecha, PuntosOtorgados FROM Actividades WHERE ActividadID = %s",
+        (actividad_id,)
+    )
+    act = cursor.fetchone()
+    if not act:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
+
+    cursor.execute(
+        "SELECT a.AlumnoID, a.Nombre || ' ' || a.Apellido FROM RegistroActividades ra JOIN Alumnos a ON ra.AlumnoID = a.AlumnoID WHERE ra.ActividadID = %s ORDER BY a.Apellido ASC",
+        (actividad_id,)
+    )
+    realizaron = [{"id": r[0], "nombre": r[1]} for r in cursor.fetchall()]
+    conn.close()
+
+    return {
+        "id": actividad_id,
+        "nombre": act[0],
+        "fecha": act[1].strftime("%d/%m/%Y"),
+        "puntos": act[2],
+        "realizaron": realizaron
+    }
