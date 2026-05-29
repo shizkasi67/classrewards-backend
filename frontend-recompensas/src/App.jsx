@@ -21,6 +21,16 @@ export default function App() {
     }
   }, []);
 
+  // Si el token falla (401), volvemos al login limpiamente en vez de buguear
+  useEffect(() => {
+    const manejarSesionExpirada = () => {
+      setAutenticada(false);
+      setPantallaActual('dashboard');
+    };
+    window.addEventListener('sesion-expirada', manejarSesionExpirada);
+    return () => window.removeEventListener('sesion-expirada', manejarSesionExpirada);
+  }, []);
+
   // Función para cerrar sesión de forma segura
   const cerrarSesion = () => {
     localStorage.removeItem('token_profesora');

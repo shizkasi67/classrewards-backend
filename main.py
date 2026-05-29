@@ -1,11 +1,12 @@
 import os
+import threading
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
-import psycopg2 
+import psycopg2
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
@@ -41,8 +42,51 @@ def verificar_token(credentials: HTTPAuthorizationCredentials = Depends(security
     except JWTError:
         raise HTTPException(status_code=401, detail="Sesión expirada")
 
+_local = threading.local()
+
+class _PersistentConn:
+    """Reutiliza la conexión del hilo actual; close() solo revierte en vez de desconectar."""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self, *args, **kwargs):
+        return self._conn.cursor(*args, **kwargs)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
+
 def get_db_connection():
-    return psycopg2.connect(DB_CONNECTION_STRING)
+    conn = getattr(_local, 'conn', None)
+    if conn is not None and conn.closed == 0:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            conn.rollback()
+            return _PersistentConn(conn)
+        except Exception:
+            pass
+    try:
+        if conn:
+            conn.close()
+    except Exception:
+        pass
+    _local.conn = psycopg2.connect(
+        DB_CONNECTION_STRING,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
+    )
+    return _PersistentConn(_local.conn)
 
 # 3. MODELOS
 class NuevoCursoRequest(BaseModel):
