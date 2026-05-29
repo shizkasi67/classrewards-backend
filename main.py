@@ -1,7 +1,5 @@
 import os
-import json
 import threading
-import urllib.request
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -9,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import psycopg2
-from jose import jwt, JWTError, jwk as jose_jwk
+import jwt as pyjwt
+from jwt import PyJWKClient
 from datetime import datetime
 
 # 1. CONFIGURACIÓN
@@ -29,29 +28,22 @@ app.add_middleware(
 
 # 2. SEGURIDAD
 security = HTTPBearer()
-_jwks_cache = None
+_jwks_client = None
 
-def _get_jwks():
-    global _jwks_cache
-    if _jwks_cache is None:
-        url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-        with urllib.request.urlopen(url) as r:
-            _jwks_cache = json.loads(r.read())
-    return _jwks_cache
+def _get_jwks_client():
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = PyJWKClient(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json")
+    return _jwks_client
 
 def verificar_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     try:
-        header = jwt.get_unverified_header(token)
-        kid = header.get("kid")
-        alg = header.get("alg", "ES256")
-        keys = _get_jwks().get("keys", [])
-        key_data = next((k for k in keys if k.get("kid") == kid), keys[0] if keys else None)
-        if not key_data:
-            raise JWTError("no key")
-        public_key = jose_jwk.construct(key_data)
-        return jwt.decode(token, public_key, algorithms=[alg], audience="authenticated")
-    except JWTError:
+        client = _get_jwks_client()
+        signing_key = client.get_signing_key_from_jwt(token)
+        data = pyjwt.decode(token, signing_key.key, algorithms=["ES256", "RS256"], audience="authenticated")
+        return data
+    except Exception:
         raise HTTPException(status_code=401, detail="Sesion invalida")
 
 _local = threading.local()
