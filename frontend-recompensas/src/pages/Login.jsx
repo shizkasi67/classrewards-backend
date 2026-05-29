@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import api from '../services/api';
+import { supabase } from '../services/supabase';
 import Swal from 'sweetalert2';
 
 export default function Login({ onLoginExitoso }) {
@@ -12,20 +12,14 @@ export default function Login({ onLoginExitoso }) {
     setCargando(true);
 
     try {
-      const res = await api.post('/login', { correo, contrasena });
-      
-      // Guardamos el "pase VIP" en el navegador
-      localStorage.setItem('token_profesora', res.data.token);
-      localStorage.setItem('nombre_profesora', res.data.nombre);
-      
-      Swal.fire({
-        title: `¡Bienvenida, ${res.data.nombre}!`,
-        icon: 'success',
-        timer: 1500,
-        showConfirmButton: false
+      const { error } = await supabase.auth.signInWithPassword({
+        email: correo,
+        password: contrasena,
       });
 
-      onLoginExitoso(); // Le avisa a la app que ya puede mostrar el contenido
+      if (error) throw error;
+
+      onLoginExitoso();
     } catch (error) {
       Swal.fire({
         title: 'Acceso Denegado',

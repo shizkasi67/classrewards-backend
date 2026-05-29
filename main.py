@@ -1,5 +1,7 @@
 import os
+import json
 import threading
+import urllib.request
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -7,15 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import psycopg2
-from passlib.context import CryptContext
-from jose import jwt, JWTError
-from datetime import datetime, timedelta
+from jose import jwt, JWTError, jwk as jose_jwk
+from datetime import datetime
 
 # 1. CONFIGURACIÓN
 load_dotenv()
 DB_CONNECTION_STRING = os.getenv("DATABASE_URL")
-SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = os.getenv("ALGORITHM")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://qovpulyufefqleberhza.supabase.co")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
 app = FastAPI(title="Backend ClassRewards")
 
@@ -27,20 +28,31 @@ app.add_middleware(
 )
 
 # 2. SEGURIDAD
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
+_jwks_cache = None
 
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+def _get_jwks():
+    global _jwks_cache
+    if _jwks_cache is None:
+        url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+        with urllib.request.urlopen(url) as r:
+            _jwks_cache = json.loads(r.read())
+    return _jwks_cache
 
 def verificar_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
+        header = jwt.get_unverified_header(token)
+        kid = header.get("kid")
+        alg = header.get("alg", "ES256")
+        keys = _get_jwks().get("keys", [])
+        key_data = next((k for k in keys if k.get("kid") == kid), keys[0] if keys else None)
+        if not key_data:
+            raise JWTError("no key")
+        public_key = jose_jwk.construct(key_data)
+        return jwt.decode(token, public_key, algorithms=[alg], audience="authenticated")
     except JWTError:
-        raise HTTPException(status_code=401, detail="Sesión expirada")
+        raise HTTPException(status_code=401, detail="Sesion invalida")
 
 _local = threading.local()
 
@@ -131,15 +143,15 @@ pizarra_seleccionada = []
 # ==========================================
 # 4. RUTAS AUTENTICACIÓN
 # ==========================================
-@app.post("/login")
-def login(req: dict):
+@app.get("/yo")
+def yo(u=Depends(verificar_token)):
+    email = u.get("email", "")
     conn = get_db_connection(); cursor = conn.cursor()
-    cursor.execute("SELECT ProfesorID, Nombre, Contrasena FROM Profesores WHERE Correo = %s", (req['correo'],))
-    profesor = cursor.fetchone()
-    if profesor and pwd_context.verify(req['contrasena'], profesor[2]):
-        token = create_access_token(data={"sub": req['correo'], "nombre": profesor[1]})
-        return {"token": token, "nombre": profesor[1]}
-    raise HTTPException(status_code=401, detail="Error de login")
+    cursor.execute("SELECT Nombre FROM Profesores WHERE Correo = %s", (email,))
+    row = cursor.fetchone()
+    conn.close()
+    nombre = row[0] if row else email.split("@")[0].capitalize()
+    return {"nombre": nombre}
 
 # ==========================================
 # 5. RUTAS CURSOS Y ALUMNOS

@@ -1,49 +1,57 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Tienda from './pages/Tienda';
-import Pizarra from './pages/Pizarra';
-import Actividades from './pages/actividades';
+import { supabase } from './services/supabase';
+import api from './services/api';
+
+const Dashboard   = lazy(() => import('./pages/Dashboard'));
+const Tienda      = lazy(() => import('./pages/Tienda'));
+const Pizarra     = lazy(() => import('./pages/Pizarra'));
+const Actividades = lazy(() => import('./pages/actividades'));
 
 export default function App() {
-  // Estados principales de la aplicación
   const [autenticada, setAutenticada] = useState(false);
   const [pantallaActual, setPantallaActual] = useState('dashboard');
   const [nombreProfesora, setNombreProfesora] = useState('Profesora');
 
-  // Al cargar la página, revisamos si la profesora ya había iniciado sesión
   useEffect(() => {
-    const token = localStorage.getItem('token_profesora');
-    const nombre = localStorage.getItem('nombre_profesora');
-    if (token) {
-      setAutenticada(true);
-      if (nombre) setNombreProfesora(nombre);
+    // Revisar si hay sesión activa al cargar
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setAutenticada(true);
+        cargarNombre();
+      }
+    });
+
+    // Escuchar cambios de sesión (login / logout / refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        setAutenticada(true);
+        if (event === 'SIGNED_IN') cargarNombre();
+      } else {
+        setAutenticada(false);
+        setPantallaActual('dashboard');
+        setNombreProfesora('Profesora');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const cargarNombre = async () => {
+    try {
+      const res = await api.get('/yo');
+      setNombreProfesora(res.data.nombre);
+    } catch {
+      // Si falla, queda el valor por defecto
     }
-  }, []);
-
-  // Si el token falla (401), volvemos al login limpiamente en vez de buguear
-  useEffect(() => {
-    const manejarSesionExpirada = () => {
-      setAutenticada(false);
-      setPantallaActual('dashboard');
-    };
-    window.addEventListener('sesion-expirada', manejarSesionExpirada);
-    return () => window.removeEventListener('sesion-expirada', manejarSesionExpirada);
-  }, []);
-
-  // Función para cerrar sesión de forma segura
-  const cerrarSesion = () => {
-    localStorage.removeItem('token_profesora');
-    localStorage.removeItem('nombre_profesora');
-    setAutenticada(false);
-    setPantallaActual('dashboard'); // Reseteamos la vista por defecto
   };
 
-  // Si se logra el login, actualizamos el estado
+  const cerrarSesion = async () => {
+    await supabase.auth.signOut();
+  };
+
   const manejarLoginExitoso = () => {
-    const nombre = localStorage.getItem('nombre_profesora');
-    if (nombre) setNombreProfesora(nombre);
-    setAutenticada(true);
+    // onAuthStateChange se encarga del resto
   };
 
   // ==========================================
@@ -128,10 +136,12 @@ export default function App() {
 
       {/* ÁREA PRINCIPAL (Donde cambian las pantallas) */}
       <main style={{ flex: 1, padding: 'clamp(20px, 4vw, 40px)', overflowY: 'auto' }}>
-        {pantallaActual === 'dashboard' && <Dashboard />}
-        {pantallaActual === 'tienda' && <Tienda />}
-        {pantallaActual === 'pizarra' && <Pizarra />}
-        {pantallaActual === 'actividades' && <Actividades />}
+        <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94A3B8', fontSize: '1rem' }}>Cargando...</div>}>
+          {pantallaActual === 'dashboard' && <Dashboard />}
+          {pantallaActual === 'tienda' && <Tienda />}
+          {pantallaActual === 'pizarra' && <Pizarra />}
+          {pantallaActual === 'actividades' && <Actividades />}
+        </Suspense>
       </main>
       
     </div>
