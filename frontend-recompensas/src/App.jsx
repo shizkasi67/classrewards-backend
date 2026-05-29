@@ -1,7 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import Login from './pages/Login';
 import { supabase } from './services/supabase';
-import api from './services/api';
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'));
 const Tienda      = lazy(() => import('./pages/Tienda'));
@@ -18,7 +17,7 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setAutenticada(true);
-        cargarNombre();
+        cargarNombre(session);
       }
     });
 
@@ -26,7 +25,7 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         setAutenticada(true);
-        if (event === 'SIGNED_IN') cargarNombre();
+        if (event === 'SIGNED_IN') cargarNombre(session);
       } else {
         setAutenticada(false);
         setPantallaActual('dashboard');
@@ -37,13 +36,15 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const cargarNombre = async () => {
-    try {
-      const res = await api.get('/yo');
-      setNombreProfesora(res.data.nombre);
-    } catch {
-      // Si falla, queda el valor por defecto
-    }
+  const cargarNombre = async (session) => {
+    const user = session?.user;
+    if (!user) return;
+    const nombre =
+      user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      user.email?.split('@')[0] ||
+      'Profesora';
+    setNombreProfesora(nombre.charAt(0).toUpperCase() + nombre.slice(1));
   };
 
   const cerrarSesion = async () => {
