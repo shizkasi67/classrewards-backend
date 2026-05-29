@@ -1,6 +1,7 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import Login from './pages/Login';
 import { supabase } from './services/supabase';
+import api from './services/api';
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'));
 const Tienda      = lazy(() => import('./pages/Tienda'));
@@ -11,6 +12,13 @@ export default function App() {
   const [autenticada, setAutenticada] = useState(false);
   const [pantallaActual, setPantallaActual] = useState('dashboard');
   const [nombreProfesora, setNombreProfesora] = useState('Profesora');
+
+  useEffect(() => {
+    // Mantener backend activo (evita cold starts en Render free tier)
+    api.get('/ping').catch(() => {});
+    const keepAlive = setInterval(() => api.get('/ping').catch(() => {}), 9 * 60 * 1000);
+    return () => clearInterval(keepAlive);
+  }, []);
 
   useEffect(() => {
     // Revisar si hay sesión activa al cargar

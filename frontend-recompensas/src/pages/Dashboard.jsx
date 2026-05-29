@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import Swal from 'sweetalert2';
 
@@ -23,29 +23,34 @@ export default function Dashboard() {
 
   const [showHistorial, setShowHistorial] = useState(false);
   const [historialData, setHistorialData] = useState([]);
+  const cargaInicial = useRef(true);
 
   // --- CARGA DE DATOS ---
-  const cargarCursos = async () => {
-    try {
-      const respuesta = await api.get('/cursos');
-      setCursos(respuesta.data);
-      if (respuesta.data.length > 0 && !cursoActual) setCursoActual(respuesta.data[0].id);
-    } catch (err) { setError("No se pudieron cargar los cursos."); }
-  };
-
-  const cargarAlumnos = async () => {
-    if (!cursoActual) return;
+  const cargarAlumnos = async (id) => {
+    const cursoId = id ?? cursoActual;
+    if (!cursoId) return;
     setCargando(true);
     try {
-      const respuesta = await api.get(`/cursos/${cursoActual}/alumnos`);
+      const respuesta = await api.get(`/cursos/${cursoId}/alumnos`);
       setAlumnos(respuesta.data);
       setError(null);
-    } catch (err) { setError("No se pudieron cargar los datos."); } 
+    } catch (err) { setError("No se pudieron cargar los datos."); }
     finally { setCargando(false); }
   };
 
-  useEffect(() => { cargarCursos(); }, []);
-  useEffect(() => { cargarAlumnos(); }, [cursoActual]);
+  useEffect(() => {
+    api.get('/dashboard').then(({ data }) => {
+      setCursos(data.cursos);
+      setAlumnos(data.alumnos);
+      if (data.curso_id) setCursoActual(data.curso_id);
+      setCargando(false);
+    }).catch(() => setError("No se pudieron cargar los datos."));
+  }, []);
+
+  useEffect(() => {
+    if (cargaInicial.current) { cargaInicial.current = false; return; }
+    if (cursoActual) cargarAlumnos(cursoActual);
+  }, [cursoActual]);
 
   // --- LÓGICA DE PUNTOS ---
   const manejarPuntos = async (alumnoId, cantidad, e) => {

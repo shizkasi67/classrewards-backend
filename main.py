@@ -135,6 +135,10 @@ pizarra_seleccionada = []
 # ==========================================
 # 4. RUTAS AUTENTICACIÓN
 # ==========================================
+@app.get("/ping")
+def ping():
+    return {"ok": True}
+
 @app.get("/yo")
 def yo(u=Depends(verificar_token)):
     email = u.get("email", "")
@@ -155,6 +159,18 @@ def obtener_cursos(u=Depends(verificar_token)):
     cursos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}".strip()} for r in cursor.fetchall()]
     conn.close()
     return cursos
+
+@app.get("/dashboard")
+def dashboard_init(u=Depends(verificar_token)):
+    conn = get_db_connection(); cursor = conn.cursor()
+    cursor.execute("SELECT CursoID, NombreCurso, Seccion FROM Cursos ORDER BY NombreCurso ASC")
+    cursos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}".strip()} for r in cursor.fetchall()]
+    alumnos = []
+    if cursos:
+        cursor.execute("SELECT AlumnoID, Nombre, Apellido, Puntos FROM Alumnos WHERE CursoID = %s ORDER BY Apellido ASC", (cursos[0]["id"],))
+        alumnos = [{"id": r[0], "nombre": f"{r[1]} {r[2]}", "puntos": r[3]} for r in cursor.fetchall()]
+    conn.close()
+    return {"cursos": cursos, "alumnos": alumnos, "curso_id": cursos[0]["id"] if cursos else None}
 
 @app.post("/cursos")
 def crear_curso(req: NuevoCursoRequest, u=Depends(verificar_token)):
