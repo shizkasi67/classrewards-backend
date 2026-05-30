@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import api from '../services/api';
+import * as db from '../services/db';
 import Swal from 'sweetalert2';
 
 export default function Pizarra() {
@@ -7,127 +7,96 @@ export default function Pizarra() {
   const [premiosPizarra, setPremiosPizarra] = useState([]);
   const [cursos, setCursos] = useState([]);
   const [cursoActual, setCursoActual] = useState('');
-  
+
   const [modoPresentacion, setModoPresentacion] = useState(false);
   const [seleccionadosPremios, setSeleccionadosPremios] = useState([]);
   const [animando, setAnimando] = useState(false);
 
-  // Estados del Modal de Compra Múltiple
   const [recompensaActiva, setRecompensaActiva] = useState(null);
   const [alumnosElegibles, setAlumnosElegibles] = useState([]);
-  const [alumnosSeleccionados, setAlumnosSeleccionados] = useState([]); // Nueva selección múltiple
+  const [alumnosSeleccionados, setAlumnosSeleccionados] = useState([]);
   const [cargandoElegibles, setCargandoElegibles] = useState(false);
 
-  const cargarDatosIniciales = async () => {
-    try {
-      const [resRec, resCur] = await Promise.all([
-        api.get('/recompensas'),
-        api.get('/cursos')
-      ]);
-      setCatalogo(resRec.data);
-      setCursos(resCur.data);
-      if (resCur.data.length > 0 && !cursoActual) setCursoActual(resCur.data[0].id);
-    } catch (error) { console.error("Error al cargar datos", error); }
-  };
-
-  useEffect(() => { cargarDatosIniciales(); }, []);
+  useEffect(() => {
+    Promise.all([db.getRecompensas(), db.getCursos()]).then(([recs, curs]) => {
+      setCatalogo(recs);
+      setCursos(curs);
+      if (curs.length > 0) setCursoActual(curs[0].id);
+    }).catch(err => console.error('Error al cargar datos', err));
+  }, []);
 
   const toggleSeleccionPremio = (id) => {
     if (seleccionadosPremios.includes(id)) {
-      setSeleccionadosPremios(seleccionadosPremios.filter(item => item !== id));
+      setSeleccionadosPremios(seleccionadosPremios.filter(i => i !== id));
     } else {
       if (seleccionadosPremios.length >= 5) {
         Swal.fire({ title: 'Límite alcanzado', text: 'Máximo 5 premios.', icon: 'info' });
-        return; 
+        return;
       }
       setSeleccionadosPremios([...seleccionadosPremios, id]);
     }
   };
 
-  const presentarSeleccion = async () => {
+  const presentarSeleccion = () => {
     if (seleccionadosPremios.length === 0) return Swal.fire({ title: 'Atención', text: 'Selecciona premios.', icon: 'warning' });
-    try {
-      await api.post('/recompensas/clase/seleccionar', { ids: seleccionadosPremios });
-      const res = await api.get('/recompensas/clase');
-      setPremiosPizarra(res.data);
-      setModoPresentacion(true);
-      setAnimando(true);
-      setTimeout(() => setAnimando(false), 800);
-    } catch (error) { Swal.fire('Error', 'No se pudo preparar la pizarra.', 'error'); }
+    const seleccionados = catalogo.filter(p => seleccionadosPremios.includes(p.id));
+    setPremiosPizarra(seleccionados);
+    setModoPresentacion(true);
+    setAnimando(true);
+    setTimeout(() => setAnimando(false), 800);
   };
 
-  const presentarAzar = async () => {
-    try {
-      const res = await api.post('/recompensas/azar');
-      setPremiosPizarra(res.data);
-      setSeleccionadosPremios(res.data.map(p => p.id));
-      setModoPresentacion(true);
-      setAnimando(true);
-      setTimeout(() => setAnimando(false), 800);
-    } catch (error) { Swal.fire('Error', 'Fallo al elegir premios al azar.', 'error'); }
+  const presentarAzar = () => {
+    if (catalogo.length === 0) return;
+    const mezclado = [...catalogo].sort(() => Math.random() - 0.5);
+    const elegidos = mezclado.slice(0, Math.min(3, catalogo.length));
+    setPremiosPizarra(elegidos);
+    setSeleccionadosPremios(elegidos.map(p => p.id));
+    setModoPresentacion(true);
+    setAnimando(true);
+    setTimeout(() => setAnimando(false), 800);
   };
 
   const abrirModalCompraPizarra = async (recompensa) => {
     if (!cursoActual) return Swal.fire({ title: 'Atención', text: 'Selecciona un curso primero.', icon: 'info' });
     setRecompensaActiva(recompensa);
-    setAlumnosSeleccionados([]); // Limpiamos selección previa
+    setAlumnosSeleccionados([]);
     setCargandoElegibles(true);
-    try { 
-      const res = await api.get(`/tienda/recompensas/${recompensa.id}/elegibles?curso_id=${cursoActual}`); 
-      setAlumnosElegibles(res.data); 
-    } catch (error) { console.error(error); } 
+    try {
+      setAlumnosElegibles(await db.getElegibles(recompensa.id, cursoActual));
+    } catch (error) { console.error(error); }
     finally { setCargandoElegibles(false); }
   };
 
   const toggleAlumnoSeleccionado = (id) => {
-    setAlumnosSeleccionados(prev => 
-      prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id]
-    );
+    setAlumnosSeleccionados(prev => prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]);
   };
 
   const procesarCompraMultiple = async () => {
     if (alumnosSeleccionados.length === 0) return;
-
     const contenedor = document.getElementById('contenedor-pizarra');
     const cantidad = alumnosSeleccionados.length;
 
     const result = await Swal.fire({
       title: '¿Confirmar Canje Grupal?',
       html: `¿Estás segura de otorgar <b>"${recompensaActiva.nombre}"</b> a los <b>${cantidad}</b> estudiantes seleccionados?`,
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonColor: '#10B981',
-      cancelButtonColor: '#64748B',
-      confirmButtonText: 'Sí, otorgar a todos',
-      cancelButtonText: 'Cancelar',
+      icon: 'question', showCancelButton: true,
+      confirmButtonColor: '#10B981', cancelButtonColor: '#64748B',
+      confirmButtonText: 'Sí, otorgar a todos', cancelButtonText: 'Cancelar',
       target: contenedor || 'body',
-      didOpen: () => { Swal.getContainer().style.zIndex = "10001"; }
+      didOpen: () => { Swal.getContainer().style.zIndex = '10001'; }
     });
 
     if (result.isConfirmed) {
       try {
-        // Procesamos todas las compras en paralelo
-        await Promise.all(alumnosSeleccionados.map(id => 
-          api.post('/tienda/comprar', { alumno_id: id, recompensa_id: recompensaActiva.id })
-        ));
-
-        await Swal.fire({ 
-          title: '¡Éxito!', 
-          text: `Premio entregado a ${cantidad} estudiantes.`, 
-          icon: 'success', 
-          target: contenedor || 'body',
-          didOpen: () => { Swal.getContainer().style.zIndex = "10001"; }
+        await Promise.all(alumnosSeleccionados.map(id => db.comprarRecompensa(id, recompensaActiva.id)));
+        await Swal.fire({
+          title: '¡Éxito!', text: `Premio entregado a ${cantidad} estudiantes.`, icon: 'success',
+          target: contenedor || 'body', didOpen: () => { Swal.getContainer().style.zIndex = '10001'; }
         });
-        
         setRecompensaActiva(null);
-      } catch (error) { 
-        Swal.fire({ 
-          title: 'Error', 
-          text: 'Uno o más estudiantes no pudieron completar el canje.', 
-          icon: 'error',
-          target: contenedor || 'body',
-          didOpen: () => { Swal.getContainer().style.zIndex = "10001"; }
-        });
+      } catch {
+        Swal.fire({ title: 'Error', text: 'Uno o más canjes fallaron.', icon: 'error', target: contenedor || 'body', didOpen: () => { Swal.getContainer().style.zIndex = '10001'; } });
       }
     }
   };
@@ -170,14 +139,8 @@ export default function Pizarra() {
 
       <div style={{ display: 'flex', gap: '25px', flexWrap: 'wrap', justifyContent: 'center' }}>
         {premiosPizarra.map((premio, index) => (
-          <div 
-            key={premio.id} 
-            onClick={() => abrirModalCompraPizarra(premio)}
-            style={{ 
-              width: '260px', height: '380px', backgroundColor: '#6366F1', borderRadius: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '30px', cursor: 'pointer', boxShadow: '0 25px 50px -12px rgba(99, 102, 241, 0.4)',
-              animation: animando ? `flipInY 0.6s ease-out ${index * 0.15}s both` : 'none', border: '4px solid #818CF8'
-            }}
-          >
+          <div key={premio.id} onClick={() => abrirModalCompraPizarra(premio)}
+            style={{ width: '260px', height: '380px', backgroundColor: '#6366F1', borderRadius: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '30px', cursor: 'pointer', boxShadow: '0 25px 50px -12px rgba(99, 102, 241, 0.4)', animation: animando ? `flipInY 0.6s ease-out ${index * 0.15}s both` : 'none', border: '4px solid #818CF8' }}>
             <div style={{ backgroundColor: '#FCD34D', color: '#92400E', padding: '10px 25px', borderRadius: '25px', fontWeight: '900', fontSize: '1.4rem', marginBottom: '40px' }}>{premio.costo} PTS</div>
             <h2 style={{ color: 'white', fontSize: '1.8rem', textAlign: 'center', fontWeight: '900' }}>{premio.nombre}</h2>
           </div>
@@ -192,7 +155,7 @@ export default function Pizarra() {
               <span style={{ backgroundColor: '#D97706', color: 'white', padding: '6px 18px', borderRadius: '15px', fontWeight: 'bold' }}>Costo: {recompensaActiva.costo} Pts</span>
             </div>
             <h3 style={{ color: '#475569', fontSize: '1.1rem', marginBottom: '15px', fontWeight: '700' }}>Selecciona los alumnos que canjearán:</h3>
-            
+
             {cargandoElegibles ? <p style={{ textAlign: 'center', padding: '20px' }}>Buscando...</p> : alumnosElegibles.length === 0 ? (
               <div style={{ backgroundColor: '#FEE2E2', color: '#B91C1C', padding: '20px', borderRadius: '12px', textAlign: 'center' }}>Sin puntos suficientes en este curso.</div>
             ) : (
@@ -201,16 +164,8 @@ export default function Pizarra() {
                   {alumnosElegibles.map(alumno => {
                     const isSelected = alumnosSeleccionados.includes(alumno.id);
                     return (
-                      <div 
-                        key={alumno.id} 
-                        onClick={() => toggleAlumnoSeleccionado(alumno.id)}
-                        style={{ 
-                          ...alumnoRowStyle, 
-                          backgroundColor: isSelected ? '#E0E7FF' : '#F8FAFC',
-                          border: isSelected ? '2px solid #6366F1' : '1px solid #E2E8F0',
-                          cursor: 'pointer'
-                        }}
-                      >
+                      <div key={alumno.id} onClick={() => toggleAlumnoSeleccionado(alumno.id)}
+                        style={{ ...alumnoRowStyle, backgroundColor: isSelected ? '#E0E7FF' : '#F8FAFC', border: isSelected ? '2px solid #6366F1' : '1px solid #E2E8F0', cursor: 'pointer' }}>
                         <div>
                           <strong style={{ fontSize: '1.1rem', color: '#1E293B', display: 'block' }}>{alumno.nombre}</strong>
                           <span style={{ color: '#10B981', fontWeight: '800' }}>{alumno.puntos} pts</span>
@@ -222,18 +177,8 @@ export default function Pizarra() {
                     );
                   })}
                 </div>
-                
-                <button 
-                  onClick={procesarCompraMultiple} 
-                  disabled={alumnosSeleccionados.length === 0}
-                  style={{ 
-                    ...btnComprarStyle, 
-                    width: '100%', 
-                    marginTop: '20px', 
-                    opacity: alumnosSeleccionados.length === 0 ? 0.5 : 1,
-                    backgroundColor: '#10B981'
-                  }}
-                >
+                <button onClick={procesarCompraMultiple} disabled={alumnosSeleccionados.length === 0}
+                  style={{ ...btnComprarStyle, width: '100%', marginTop: '20px', opacity: alumnosSeleccionados.length === 0 ? 0.5 : 1, backgroundColor: '#10B981' }}>
                   Otorgar a {alumnosSeleccionados.length} estudiante(s)
                 </button>
               </>
@@ -252,13 +197,12 @@ export default function Pizarra() {
   );
 }
 
-// ESTILOS (Sin cambios)
 const pizarraLayoutStyle = { width: '100vw', height: '100vh', backgroundColor: '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, zIndex: 9990 };
 const closeBtnStyle = { position: 'absolute', top: '20px', left: '20px', background: 'none', border: 'none', fontSize: '2rem', cursor: 'pointer', color: '#CBD5E1' };
 const overlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000, padding: '20px' };
 const modalAlumnosStyle = { backgroundColor: '#fff', padding: '35px', borderRadius: '24px', width: '100%', maxWidth: '450px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' };
 const modalHeaderStyle = { backgroundColor: '#FEF3C7', margin: '-35px -35px 25px -35px', padding: '30px', borderRadius: '24px 24px 0 0', textAlign: 'center', borderBottom: '2px solid #FDE68A' };
-const alumnoRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', border: '1px solid #E2E8F0', borderRadius: '12px', transition: 'all 0.2s' };
+const alumnoRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', borderRadius: '12px', transition: 'all 0.2s' };
 const btnStyle = (bg) => ({ padding: '15px 30px', backgroundColor: bg, color: 'white', border: 'none', borderRadius: '15px', fontWeight: '800', cursor: 'pointer' });
 const btnComprarStyle = { padding: '15px', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer', color: 'white' };
 const btnCancelStyle = { padding: '15px', width: '100%', marginTop: '10px', backgroundColor: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' };

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import api from '../services/api';
+import * as db from '../services/db';
 import Swal from 'sweetalert2';
 
 export default function Dashboard() {
@@ -12,14 +12,14 @@ export default function Dashboard() {
 
   const [perfilActivo, setPerfilActivo] = useState(null);
   const [datosPerfil, setDatosPerfil] = useState(null);
-  
+
   const [modalAgregarActivo, setModalAgregarActivo] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoApellido, setNuevoApellido] = useState('');
-  
+
   const [modalCursoActivo, setModalCursoActivo] = useState(false);
   const [nuevoNombreCurso, setNuevoNombreCurso] = useState('');
-  const [nuevaSeccionCurso, setNuevaSeccionCurso] = useState(''); // Estado para la sección
+  const [nuevaSeccionCurso, setNuevaSeccionCurso] = useState('');
 
   const [showHistorial, setShowHistorial] = useState(false);
   const [historialData, setHistorialData] = useState([]);
@@ -31,20 +31,25 @@ export default function Dashboard() {
     if (!cursoId) return;
     setCargando(true);
     try {
-      const respuesta = await api.get(`/cursos/${cursoId}/alumnos`);
-      setAlumnos(respuesta.data);
+      setAlumnos(await db.getAlumnos(cursoId));
       setError(null);
-    } catch (err) { setError("No se pudieron cargar los datos."); }
+    } catch { setError('No se pudieron cargar los datos.'); }
     finally { setCargando(false); }
   };
 
+  const cargarCursos = async () => {
+    const lista = await db.getCursos();
+    setCursos(lista);
+    return lista;
+  };
+
   useEffect(() => {
-    api.get('/dashboard').then(({ data }) => {
-      setCursos(data.cursos);
-      setAlumnos(data.alumnos);
-      if (data.curso_id) setCursoActual(data.curso_id);
+    db.getDashboard().then(({ cursos, alumnos, curso_id }) => {
+      setCursos(cursos);
+      setAlumnos(alumnos);
+      if (curso_id) setCursoActual(curso_id);
       setCargando(false);
-    }).catch(() => setError("No se pudieron cargar los datos."));
+    }).catch(() => setError('No se pudieron cargar los datos.'));
   }, []);
 
   useEffect(() => {
@@ -54,116 +59,93 @@ export default function Dashboard() {
 
   // --- LÓGICA DE PUNTOS ---
   const manejarPuntos = async (alumnoId, cantidad, e) => {
-    if(e) e.stopPropagation();
+    if (e) e.stopPropagation();
     const copiaPrevia = [...alumnos];
-    setAlumnos(alumnos.map(al => al.id === alumnoId ? { ...al, puntos: al.puntos + cantidad } : al));
+    if (alumnoId) {
+      setAlumnos(alumnos.map(al => al.id === alumnoId ? { ...al, puntos: al.puntos + cantidad } : al));
+    } else {
+      setAlumnos(alumnos.map(al => ({ ...al, puntos: al.puntos + cantidad })));
+    }
 
     try {
-      if (alumnoId) {
-        await api.post('/alumnos/modificar-puntos', { cantidad, alumno_id: alumnoId });
-      } else {
-        setAlumnos(alumnos.map(al => ({ ...al, puntos: al.puntos + cantidad })));
-        await api.post('/alumnos/modificar-puntos', { cantidad, curso_id: cursoActual });
-      }
-      if (perfilActivo) abrirPerfil(perfilActivo); 
-    } catch (err) { 
-      setAlumnos(copiaPrevia); 
+      await db.modificarPuntos(alumnoId, cursoActual, cantidad);
+      if (perfilActivo) abrirPerfil(perfilActivo);
+    } catch {
+      setAlumnos(copiaPrevia);
       Swal.fire({ title: 'Cuidado', text: 'Error al actualizar puntos.', icon: 'warning', confirmButtonColor: '#F59E0B' });
     }
   };
 
   // --- FUNCIONES DE CURSOS Y ALUMNOS ---
-  const abrirModalCurso = () => { 
-    setNuevoNombreCurso(''); 
-    setNuevaSeccionCurso(''); 
-    setModalCursoActivo(true); 
-  };
-  
+  const abrirModalCurso = () => { setNuevoNombreCurso(''); setNuevaSeccionCurso(''); setModalCursoActivo(true); };
+
   const guardarNuevoCurso = async (e) => {
     e.preventDefault();
-    try { 
-      // Enviamos nombre y seccion al backend actualizado
-      await api.post('/cursos', { 
-        nombre: nuevoNombreCurso, 
-        seccion: nuevaSeccionCurso 
-      }); 
-      setModalCursoActivo(false); 
-      await cargarCursos(); 
+    try {
+      await db.crearCurso(nuevoNombreCurso, nuevaSeccionCurso);
+      setModalCursoActivo(false);
+      await cargarCursos();
       Swal.fire({ title: '¡Curso creado!', icon: 'success', timer: 1500, showConfirmButton: false });
-    } catch (err) { Swal.fire('Error', 'No se pudo crear el curso.', 'error'); }
+    } catch { Swal.fire('Error', 'No se pudo crear el curso.', 'error'); }
   };
 
   const abrirModalAgregar = () => { setNuevoNombre(''); setNuevoApellido(''); setModalAgregarActivo(true); };
-  
+
   const guardarNuevoAlumno = async (e) => {
     e.preventDefault();
-    try { 
-      await api.post('/alumnos', { nombre: nuevoNombre, apellido: nuevoApellido, curso_id: cursoActual }); 
-      setModalAgregarActivo(false); 
-      cargarAlumnos(); 
+    try {
+      await db.crearAlumno(nuevoNombre, nuevoApellido, cursoActual);
+      setModalAgregarActivo(false);
+      cargarAlumnos();
       Swal.fire({ title: '¡Guardado!', icon: 'success', timer: 1500, showConfirmButton: false });
-    } catch (err) { Swal.fire('Error', 'No se pudo guardar el estudiante.', 'error'); }
+    } catch { Swal.fire('Error', 'No se pudo guardar el estudiante.', 'error'); }
   };
 
   const eliminarAlumno = async (id, e) => {
     if (e) e.stopPropagation();
     const result = await Swal.fire({
-      title: '¿Eliminar Estudiante?',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#EF4444',
-      cancelButtonColor: '#64748B',
-      confirmButtonText: 'Sí, eliminar',
-      cancelButtonText: 'Cancelar'
+      title: '¿Eliminar Estudiante?', icon: 'warning', showCancelButton: true,
+      confirmButtonColor: '#EF4444', cancelButtonColor: '#64748B',
+      confirmButtonText: 'Sí, eliminar', cancelButtonText: 'Cancelar'
     });
-
     if (result.isConfirmed) {
-      try { 
-        await api.delete(`/alumnos/${id}`); 
-        cargarAlumnos(); 
+      try {
+        await db.eliminarAlumno(id);
+        cargarAlumnos();
         Swal.fire({ title: 'Eliminado', icon: 'success', timer: 1000, showConfirmButton: false });
-      } catch (error) { Swal.fire('Error', 'No se pudo eliminar.', 'error'); }
+      } catch { Swal.fire('Error', 'No se pudo eliminar.', 'error'); }
     }
   };
 
   const abrirPerfil = async (id) => {
     setPerfilActivo(id);
     try {
-      const res = await api.get(`/alumnos/${id}/perfil`);
-      setDatosPerfil(res.data);
-    } catch (err) { Swal.fire('Error', 'No se pudo cargar el perfil.', 'error'); }
+      setDatosPerfil(await db.getPerfil(id));
+    } catch { Swal.fire('Error', 'No se pudo cargar el perfil.', 'error'); }
   };
 
   const utilizarPremio = async (canjeId) => {
     const result = await Swal.fire({
-      title: '¿Usar Premio?',
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonColor: '#6366F1',
-      confirmButtonText: 'Sí, usar',
-      cancelButtonText: 'Cancelar'
+      title: '¿Usar Premio?', icon: 'question', showCancelButton: true,
+      confirmButtonColor: '#6366F1', confirmButtonText: 'Sí, usar', cancelButtonText: 'Cancelar'
     });
-
     if (result.isConfirmed) {
       try {
-        await api.post(`/canjes/${canjeId}/usar`);
-        abrirPerfil(perfilActivo); 
+        await db.usarPremio(canjeId);
+        abrirPerfil(perfilActivo);
         Swal.fire({ title: '¡Utilizado!', icon: 'success', timer: 1500, showConfirmButton: false });
-      } catch (err) { Swal.fire('Error', 'No se pudo procesar.', 'error'); }
+      } catch { Swal.fire('Error', 'No se pudo procesar.', 'error'); }
     }
   };
 
   const cargarHistorialGeneral = async () => {
     try {
-      const res = await api.get(`/cursos/${cursoActual}/historial-puntos`);
-      setHistorialData(res.data);
+      setHistorialData(await db.getHistorialPuntos(cursoActual));
       setShowHistorial(true);
-    } catch (err) { Swal.fire('Error', 'No se pudo cargar.', 'error'); }
+    } catch { Swal.fire('Error', 'No se pudo cargar.', 'error'); }
   };
 
-  const alumnosFiltrados = alumnos.filter((a) => 
-    a.nombre.toLowerCase().includes(busqueda.toLowerCase())
-  );
+  const alumnosFiltrados = alumnos.filter(a => a.nombre.toLowerCase().includes(busqueda.toLowerCase()));
 
   return (
     <div style={{ width: '100%' }}>
@@ -181,7 +163,6 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* BARRA DE HERRAMIENTAS */}
       <section style={{ backgroundColor: '#FFFFFF', padding: '25px', borderRadius: '20px', display: 'flex', gap: '20px', alignItems: 'center', marginBottom: '40px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 250px', position: 'relative' }}>
           <span style={{ position: 'absolute', left: '15px', top: '14px', color: '#94A3B8' }}>🔍</span>
@@ -197,7 +178,6 @@ export default function Dashboard() {
         <button onClick={abrirModalAgregar} style={{...btnStyle('#6366F1'), flex: '1 1 auto'}}>+ Nuevo Estudiante</button>
       </section>
 
-      {/* GRILLA ALUMNOS */}
       {cargando ? <p style={{ textAlign: 'center', padding: '50px' }}>Cargando...</p> : (
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '30px' }}>
           {alumnosFiltrados.map((alumno) => (
@@ -221,18 +201,14 @@ export default function Dashboard() {
         </section>
       )}
 
-      {/* MODALES */}
       {(modalCursoActivo || modalAgregarActivo || perfilActivo || showHistorial) && (
         <div style={overlayStyle}>
-            {/* FORMULARIO DE NUEVO CURSO ACTUALIZADO CON SECCIÓN */}
             {modalCursoActivo && <form onSubmit={guardarNuevoCurso} style={modalStyle}>
               <h2 style={modalTitleStyle}>Nuevo Curso</h2>
               <label style={labelStyle}>Nombre del Curso:</label>
               <input type="text" placeholder="Ej: 4to Medio" value={nuevoNombreCurso} onChange={(e) => setNuevoNombreCurso(e.target.value)} style={inputFormStyle} required />
-              
               <label style={labelStyle}>Sección / Letra:</label>
               <input type="text" placeholder="Ej: A" value={nuevaSeccionCurso} onChange={(e) => setNuevaSeccionCurso(e.target.value)} style={inputFormStyle} />
-              
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
                 <button type="button" onClick={() => setModalCursoActivo(false)} style={btnGhost('#64748B')}>Cancelar</button>
                 <button type="submit" style={btnStyle('#6366F1')}>Crear Curso</button>
@@ -317,7 +293,6 @@ export default function Dashboard() {
   );
 }
 
-// ESTILOS
 const btnStyle = (bg) => ({ padding: '12px 20px', cursor: 'pointer', backgroundColor: bg, color: bg === '#F1F5F9' ? '#475569' : 'white', border: 'none', borderRadius: '12px', fontWeight: '800', transition: 'all 0.2s', whiteSpace: 'nowrap' });
 const btnGhost = (color) => ({ backgroundColor: 'transparent', color: color, border: 'none', fontWeight: '700', cursor: 'pointer', padding: '10px', whiteSpace: 'nowrap' });
 const btnFast = (bg) => ({ padding: '8px 15px', border: 'none', backgroundColor: bg, color: '#fff', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' });
