@@ -1,0 +1,44 @@
+name: Mantenimiento Diario
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 08:00 UTC = 05:00 Chile (horario de invierno)
+  workflow_dispatch:       # permite ejecutar manualmente desde GitHub
+
+jobs:
+  mantener:
+    name: Keep-alive y Respaldo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Supabase (evitar pausa por inactividad)
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/cursos?select=cursoid&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
+          echo "Supabase responde con status: $STATUS"
+          [ "$STATUS" = "200" ] || exit 1
+
+      - name: Obtener fecha actual
+        id: fecha
+        run: echo "hoy=$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Instalar cliente PostgreSQL
+        run: sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Crear respaldo de la base de datos
+        run: |
+          pg_dump "${{ secrets.DATABASE_URL }}" \
+            --no-owner \
+            --no-acl \
+            --format=custom \
+            --file="respaldo_${{ steps.fecha.outputs.hoy }}.dump"
+
+      - name: Guardar respaldo como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: respaldo-${{ steps.fecha.outputs.hoy }}
+          path: respaldo_*.dump
+          retention-days: 30
+          if-no-files-found: error
