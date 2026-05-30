@@ -24,21 +24,17 @@ jobs:
         id: fecha
         run: echo "hoy=$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
 
-      - name: Instalar cliente PostgreSQL
-        run: sudo apt-get install -y --no-install-recommends postgresql-client
-
       - name: Crear respaldo de la base de datos
         run: |
-          pg_dump "${{ secrets.DATABASE_URL }}" \
-            --no-owner \
-            --no-acl \
-            --format=custom \
-            --file="respaldo_${{ steps.fecha.outputs.hoy }}.dump"
+          docker run --rm postgres:17-alpine \
+            pg_dump "${{ secrets.DATABASE_URL }}" \
+            --no-owner --no-acl \
+            > "respaldo_${{ steps.fecha.outputs.hoy }}.sql"
 
       - name: Guardar respaldo como artefacto
         uses: actions/upload-artifact@v4
         with:
           name: respaldo-${{ steps.fecha.outputs.hoy }}
-          path: respaldo_*.dump
+          path: respaldo_*.sql
           retention-days: 30
           if-no-files-found: error
