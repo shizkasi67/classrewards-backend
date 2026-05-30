@@ -21,13 +21,43 @@ export const getCursos = async () => {
     .select('cursoid, nombrecurso, seccion')
     .order('nombrecurso');
   if (error) throw error;
-  return data.map(c => ({ id: c.cursoid, nombre: `${c.nombrecurso} ${c.seccion || ''}`.trim() }));
+  return data.map(c => ({
+    id: c.cursoid,
+    nombre: `${c.nombrecurso} ${c.seccion || ''}`.trim(),
+    nombreBase: c.nombrecurso,
+    seccion: c.seccion || '',
+  }));
 };
 
 export const crearCurso = async (nombre, seccion) => {
   const { error } = await supabase
     .from('cursos')
     .insert({ nombrecurso: nombre, seccion: seccion || '' });
+  if (error) throw error;
+};
+
+export const editarCurso = async (id, nombre, seccion) => {
+  const { error } = await supabase
+    .from('cursos')
+    .update({ nombrecurso: nombre, seccion: seccion || '' })
+    .eq('cursoid', id);
+  if (error) throw error;
+};
+
+export const eliminarCurso = async (id) => {
+  const [{ data: alumnos }, { data: acts }] = await Promise.all([
+    supabase.from('alumnos').select('alumnoid').eq('cursoid', id),
+    supabase.from('actividades').select('actividadid').eq('cursoid', id),
+  ]);
+  const alumnoIds = (alumnos || []).map(a => a.alumnoid);
+  const actIds = (acts || []).map(a => a.actividadid);
+
+  if (actIds.length > 0) await supabase.from('registroactividades').delete().in('actividadid', actIds);
+  if (alumnoIds.length > 0) await supabase.from('historialcanjes').delete().in('alumnoid', alumnoIds);
+  await supabase.from('historialpuntos').delete().eq('cursoid', id);
+  await supabase.from('actividades').delete().eq('cursoid', id);
+  await supabase.from('alumnos').delete().eq('cursoid', id);
+  const { error } = await supabase.from('cursos').delete().eq('cursoid', id);
   if (error) throw error;
 };
 
@@ -92,6 +122,14 @@ export const crearRecompensa = async (nombre, costo, descripcion) => {
   const { error } = await supabase
     .from('recompensas')
     .insert({ nombrerecompensa: nombre, costopuntos: costo, descripcion: descripcion || '' });
+  if (error) throw error;
+};
+
+export const editarRecompensa = async (id, nombre, costo, descripcion) => {
+  const { error } = await supabase
+    .from('recompensas')
+    .update({ nombrerecompensa: nombre, costopuntos: costo, descripcion: descripcion || '' })
+    .eq('recompensaid', id);
   if (error) throw error;
 };
 

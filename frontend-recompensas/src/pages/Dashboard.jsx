@@ -21,6 +21,10 @@ export default function Dashboard() {
   const [nuevoNombreCurso, setNuevoNombreCurso] = useState('');
   const [nuevaSeccionCurso, setNuevaSeccionCurso] = useState('');
 
+  const [modalEditCursoActivo, setModalEditCursoActivo] = useState(false);
+  const [editNombreCurso, setEditNombreCurso] = useState('');
+  const [editSeccionCurso, setEditSeccionCurso] = useState('');
+
   const [showHistorial, setShowHistorial] = useState(false);
   const [historialData, setHistorialData] = useState([]);
   const cargaInicial = useRef(true);
@@ -87,6 +91,52 @@ export default function Dashboard() {
       await cargarCursos();
       Swal.fire({ title: '¡Curso creado!', icon: 'success', timer: 1500, showConfirmButton: false });
     } catch { Swal.fire('Error', 'No se pudo crear el curso.', 'error'); }
+  };
+
+  const abrirEditCurso = () => {
+    const curso = cursos.find(c => c.id === cursoActual);
+    if (!curso) return;
+    setEditNombreCurso(curso.nombreBase || curso.nombre);
+    setEditSeccionCurso(curso.seccion || '');
+    setModalEditCursoActivo(true);
+  };
+
+  const guardarEditCurso = async (e) => {
+    e.preventDefault();
+    if (!editNombreCurso.trim()) return;
+    try {
+      await db.editarCurso(cursoActual, editNombreCurso, editSeccionCurso);
+      setModalEditCursoActivo(false);
+      const lista = await cargarCursos();
+      const actualizado = lista.find(c => c.id === cursoActual);
+      if (actualizado) setCursoActual(actualizado.id);
+      Swal.fire({ title: '¡Actualizado!', icon: 'success', timer: 1500, showConfirmButton: false });
+    } catch { Swal.fire('Error', 'No se pudo editar el curso.', 'error'); }
+  };
+
+  const confirmarEliminarCurso = async () => {
+    const curso = cursos.find(c => c.id === cursoActual);
+    if (!curso) return;
+    const result = await Swal.fire({
+      title: '¿Eliminar Curso?',
+      html: `Esto borrará <b>"${curso.nombre}"</b> y todos sus estudiantes, historial y actividades. Esta acción no se puede deshacer.`,
+      icon: 'warning', showCancelButton: true,
+      confirmButtonColor: '#EF4444', cancelButtonColor: '#64748B',
+      confirmButtonText: 'Sí, eliminar todo', cancelButtonText: 'Cancelar',
+    });
+    if (result.isConfirmed) {
+      try {
+        await db.eliminarCurso(cursoActual);
+        const lista = await cargarCursos();
+        if (lista.length > 0) {
+          setCursoActual(lista[0].id);
+        } else {
+          setCursoActual('');
+          setAlumnos([]);
+        }
+        Swal.fire({ title: 'Eliminado', icon: 'success', timer: 1500, showConfirmButton: false });
+      } catch { Swal.fire('Error', 'No se pudo eliminar el curso.', 'error'); }
+    }
   };
 
   const abrirModalAgregar = () => { setNuevoNombre(''); setNuevoApellido(''); setModalAgregarActivo(true); };
@@ -159,6 +209,10 @@ export default function Dashboard() {
           <select value={cursoActual} onChange={(e) => setCursoActual(Number(e.target.value))} style={{ border: 'none', backgroundColor: '#F1F5F9', padding: '10px 15px', borderRadius: '10px', fontWeight: '700', color: '#6366F1', outline: 'none', cursor: 'pointer' }}>
             {cursos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
+          {cursoActual && <>
+            <button onClick={abrirEditCurso} title="Editar curso" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '4px 6px', color: '#6366F1' }}>✏️</button>
+            <button onClick={confirmarEliminarCurso} title="Eliminar curso" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '4px 6px', color: '#EF4444' }}>🗑️</button>
+          </>}
           <button onClick={abrirModalCurso} style={btnGhost('#6366F1')}>+ Nuevo Curso</button>
         </div>
       </header>
@@ -201,7 +255,7 @@ export default function Dashboard() {
         </section>
       )}
 
-      {(modalCursoActivo || modalAgregarActivo || perfilActivo || showHistorial) && (
+      {(modalCursoActivo || modalEditCursoActivo || modalAgregarActivo || perfilActivo || showHistorial) && (
         <div style={overlayStyle}>
             {modalCursoActivo && <form onSubmit={guardarNuevoCurso} style={modalStyle}>
               <h2 style={modalTitleStyle}>Nuevo Curso</h2>
@@ -212,6 +266,18 @@ export default function Dashboard() {
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
                 <button type="button" onClick={() => setModalCursoActivo(false)} style={btnGhost('#64748B')}>Cancelar</button>
                 <button type="submit" style={btnStyle('#6366F1')}>Crear Curso</button>
+              </div>
+            </form>}
+
+            {modalEditCursoActivo && <form onSubmit={guardarEditCurso} style={modalStyle}>
+              <h2 style={modalTitleStyle}>Editar Curso</h2>
+              <label style={labelStyle}>Nombre del Curso:</label>
+              <input type="text" placeholder="Ej: 4to Medio" value={editNombreCurso} onChange={(e) => setEditNombreCurso(e.target.value)} style={inputFormStyle} required />
+              <label style={labelStyle}>Sección / Letra:</label>
+              <input type="text" placeholder="Ej: A" value={editSeccionCurso} onChange={(e) => setEditSeccionCurso(e.target.value)} style={inputFormStyle} />
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" onClick={() => setModalEditCursoActivo(false)} style={btnGhost('#64748B')}>Cancelar</button>
+                <button type="submit" style={btnStyle('#6366F1')}>Guardar Cambios</button>
               </div>
             </form>}
 

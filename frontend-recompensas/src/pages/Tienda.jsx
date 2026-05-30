@@ -17,6 +17,11 @@ export default function Tienda() {
   const [nuevoCostoRec, setNuevoCostoRec] = useState('');
   const [nuevaDescRec, setNuevaDescRec] = useState('');
 
+  const [recompensaEditando, setRecompensaEditando] = useState(null);
+  const [editNombreRec, setEditNombreRec] = useState('');
+  const [editCostoRec, setEditCostoRec] = useState('');
+  const [editDescRec, setEditDescRec] = useState('');
+
   const cargarDatos = async () => {
     try {
       const [listaCursos, listaRec] = await Promise.all([db.getCursos(), db.getRecompensas()]);
@@ -80,6 +85,27 @@ export default function Tienda() {
     }
   };
 
+  const abrirEditRecompensa = (recompensa, e) => {
+    e.stopPropagation();
+    setRecompensaEditando(recompensa);
+    setEditNombreRec(recompensa.nombre);
+    setEditCostoRec(String(recompensa.costo));
+    setEditDescRec(recompensa.descripcion || '');
+  };
+
+  const guardarEditRecompensa = async () => {
+    if (!editNombreRec.trim()) return Swal.fire('Falta el Título', 'Escribe un nombre para el premio.', 'warning');
+    if (!editCostoRec || Number(editCostoRec) <= 0) return Swal.fire('Costo Inválido', 'Ingresa un costo mayor a 0.', 'warning');
+    try {
+      await db.editarRecompensa(recompensaEditando.id, editNombreRec, Number(editCostoRec), editDescRec);
+      setRecompensaEditando(null);
+      cargarDatos();
+      Swal.fire({ title: '¡Actualizado!', icon: 'success', timer: 1500, showConfirmButton: false });
+    } catch {
+      Swal.fire('Error', 'No se pudo actualizar el premio.', 'error');
+    }
+  };
+
   const eliminarRecompensa = async (id, nombre, e) => {
     e.stopPropagation();
     const result = await Swal.fire({
@@ -121,7 +147,10 @@ export default function Tienda() {
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '30px' }}>
         {recompensas.map(recompensa => (
           <article key={recompensa.id} onClick={() => abrirModalCompra(recompensa)} style={{ backgroundImage: 'linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%)', borderRadius: '20px', padding: '30px', textAlign: 'center', cursor: 'pointer', position: 'relative', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(217, 119, 6, 0.1)', transition: 'transform 0.2s', border: '2px solid #FCD34D' }}>
-            <button onClick={(e) => eliminarRecompensa(recompensa.id, recompensa.nombre, e)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#B45309', cursor: 'pointer', fontSize: '1.2rem' }} title="Eliminar Premio">🗑️</button>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', gap: '4px' }}>
+            <button onClick={(e) => abrirEditRecompensa(recompensa, e)} style={{ background: 'transparent', border: 'none', color: '#B45309', cursor: 'pointer', fontSize: '1.1rem' }} title="Editar Premio">✏️</button>
+            <button onClick={(e) => eliminarRecompensa(recompensa.id, recompensa.nombre, e)} style={{ background: 'transparent', border: 'none', color: '#B45309', cursor: 'pointer', fontSize: '1.1rem' }} title="Eliminar Premio">🗑️</button>
+          </div>
             <div style={{ backgroundColor: '#D97706', color: 'white', display: 'inline-block', padding: '8px 20px', borderRadius: '20px', fontWeight: '900', fontSize: '1.4rem', marginBottom: '20px' }}>
               {recompensa.costo} PTS
             </div>
@@ -130,6 +159,24 @@ export default function Tienda() {
           </article>
         ))}
       </section>
+
+      {recompensaEditando && (
+        <div style={overlayStyle}>
+          <div style={modalStyle}>
+            <h2 style={{ marginTop: 0, color: '#D97706', borderBottom: '2px solid #FEF3C7', paddingBottom: '15px', marginBottom: '20px', fontSize: '1.6rem', fontWeight: '800' }}>Editar Premio</h2>
+            <label style={labelStyle}>Título del Premio:</label>
+            <input type="text" placeholder="Ej: Elegir música de fondo" value={editNombreRec} onChange={(e) => setEditNombreRec(e.target.value)} style={inputFormStyle} />
+            <label style={labelStyle}>Costo (Puntos):</label>
+            <input type="number" min="1" placeholder="Ej: 15" value={editCostoRec} onChange={(e) => setEditCostoRec(e.target.value)} style={inputFormStyle} />
+            <label style={labelStyle}>Descripción corta (Opcional):</label>
+            <textarea placeholder="¿De qué trata este premio?" value={editDescRec} onChange={(e) => setEditDescRec(e.target.value)} style={{...inputFormStyle, minHeight: '80px', resize: 'none'}} />
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+              <button type="button" onClick={() => setRecompensaEditando(null)} style={{ backgroundColor: 'transparent', color: '#64748B', border: 'none', fontWeight: '700', cursor: 'pointer', padding: '10px 20px' }}>Cancelar</button>
+              <button type="button" onClick={guardarEditRecompensa} style={{ padding: '12px 25px', backgroundColor: '#F59E0B', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' }}>Guardar Cambios</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modalNuevaRecompensa && (
         <div style={overlayStyle}>
