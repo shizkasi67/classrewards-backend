@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import Login from './pages/Login';
 import { supabase } from './services/supabase';
 import api from './services/api';
+import DemoBanner from './components/DemoBanner';
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'));
 const Tienda      = lazy(() => import('./pages/Tienda'));
@@ -15,6 +16,7 @@ export default function App() {
 
   useEffect(() => {
     // Mantener backend activo (evita cold starts en Render free tier)
+    if (!import.meta.env.VITE_API_URL) return;
     api.get('/ping').catch(() => {});
     const keepAlive = setInterval(() => api.get('/ping').catch(() => {}), 9 * 60 * 1000);
     return () => clearInterval(keepAlive);
@@ -67,7 +69,12 @@ export default function App() {
   // 1. PANTALLA DE BLOQUEO (LOGIN)
   // ==========================================
   if (!autenticada) {
-    return <Login onLoginExitoso={manejarLoginExitoso} />;
+    return (
+      <>
+        <DemoBanner />
+        <Login onLoginExitoso={manejarLoginExitoso} />
+      </>
+    );
   }
 
   // ==========================================
@@ -75,10 +82,11 @@ export default function App() {
   // ==========================================
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100%', backgroundColor: '#F8FAFC', fontFamily: '"Inter", system-ui, -apple-system, sans-serif', overflow: 'hidden' }}>
-      
+      <DemoBanner />
+
       {/* MENÚ LATERAL (SIDEBAR) */}
       <aside style={{ width: '280px', backgroundColor: '#1E293B', color: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxShadow: '4px 0 15px rgba(0,0,0,0.1)', zIndex: 10 }}>
-        
+
         {/* Logo y Título */}
         <div>
           <div style={{ padding: '30px 20px', display: 'flex', alignItems: 'center', gap: '15px', borderBottom: '1px solid #334155', marginBottom: '20px' }}>
@@ -93,17 +101,17 @@ export default function App() {
 
           {/* Botones de Navegación */}
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '0 15px' }}>
-            <BotonNavegacion 
-              activo={pantallaActual === 'dashboard'} 
+            <BotonNavegacion
+              activo={pantallaActual === 'dashboard'}
               onClick={() => setPantallaActual('dashboard')}
-              icono="👨‍🎓" 
-              texto="Gestión de Alumnos" 
+              icono="👨‍🎓"
+              texto="Gestión de Alumnos"
             />
-            <BotonNavegacion 
-              activo={pantallaActual === 'tienda'} 
+            <BotonNavegacion
+              activo={pantallaActual === 'tienda'}
               onClick={() => setPantallaActual('tienda')}
-              icono="🎁" 
-              texto="Tienda de Premios" 
+              icono="🎁"
+              texto="Tienda de Premios"
             />
             <BotonNavegacion
               activo={pantallaActual === 'pizarra'}
@@ -131,8 +139,8 @@ export default function App() {
               <span style={{ color: '#10B981', fontSize: '0.8rem', fontWeight: 'bold' }}>● En línea</span>
             </div>
           </div>
-          
-          <button 
+
+          <button
             onClick={cerrarSesion}
             style={{ width: '100%', padding: '10px', backgroundColor: '#ef444420', color: '#EF4444', border: '1px solid #ef444440', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
             onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#EF4444'; e.currentTarget.style.color = 'white'; }}
@@ -152,7 +160,7 @@ export default function App() {
           {pantallaActual === 'actividades' && <Actividades />}
         </Suspense>
       </main>
-      
+
     </div>
   );
 }
@@ -162,7 +170,7 @@ export default function App() {
 // ==========================================
 function BotonNavegacion({ activo, onClick, icono, texto }) {
   return (
-    <button 
+    <button
       onClick={onClick}
       style={{
         display: 'flex',

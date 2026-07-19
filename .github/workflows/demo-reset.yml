@@ -1,0 +1,19 @@
+name: Reset Diario Demo
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 09:00 UTC = 06:00 Chile (horario de invierno)
+  workflow_dispatch:       # permite ejecutar manualmente desde GitHub
+
+jobs:
+  resetear:
+    name: Restaurar datos de prueba de la demo
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ejecutar demo/seed.sql contra el proyecto Supabase de la demo
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE/demo:/demo" postgres:17-alpine \
+            psql "${{ secrets.DEMO_DATABASE_URL }}" -v ON_ERROR_STOP=1 -f /demo/seed.sql
