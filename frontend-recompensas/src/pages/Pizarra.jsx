@@ -105,7 +105,7 @@ export default function Pizarra() {
     return (
       <div style={{ width: '100%', padding: '20px' }}>
         <header style={{ marginBottom: '30px', textAlign: 'center' }}>
-          <h2 style={{ fontSize: '2.2rem', color: '#1E293B', fontWeight: '900' }}>Preparar Pizarra</h2>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 5vw, 2.2rem)', color: '#1E293B', fontWeight: '900' }}>Preparar Pizarra</h2>
           <div style={{ margin: '15px 0', display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
             <span style={{ fontWeight: '700', color: '#64748B' }}>Curso:</span>
             <select value={cursoActual} onChange={(e) => { setCursoActual(Number(e.target.value)); setSeleccionadosPremios([]); }} style={{ padding: '8px 15px', borderRadius: '10px', border: '1px solid #CBD5E1', fontWeight: '700', color: '#6366F1', outline: 'none', cursor: 'pointer' }}>
@@ -134,7 +134,7 @@ export default function Pizarra() {
       <button onClick={() => setModoPresentacion(false)} style={closeBtnStyle}>✖</button>
 
       <div style={{ textAlign: 'center', marginBottom: '50px', animation: animando ? 'fadeInDown 0.8s ease-out' : 'none' }}>
-        <h1 style={{ fontSize: '4rem', color: '#1E293B', fontWeight: '900' }}>✨ Premios del Día ✨</h1>
+        <h1 style={{ fontSize: 'clamp(1.8rem, 8vw, 4rem)', color: '#1E293B', fontWeight: '900' }}>✨ Premios del Día ✨</h1>
       </div>
 
       <div style={{ display: 'flex', gap: '25px', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -197,7 +197,7 @@ export default function Pizarra() {
   );
 }
 
-const pizarraLayoutStyle = { width: '100vw', height: '100vh', backgroundColor: '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, zIndex: 9990 };
+const pizarraLayoutStyle = { width: '100vw', height: '100vh', backgroundColor: '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, zIndex: 9990, overflowY: 'auto', padding: '70px 20px 30px' };
 const closeBtnStyle = { position: 'absolute', top: '20px', left: '20px', background: 'none', border: 'none', fontSize: '2rem', cursor: 'pointer', color: '#CBD5E1' };
 const overlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000, padding: '20px' };
 const modalAlumnosStyle = { backgroundColor: '#fff', padding: '35px', borderRadius: '24px', width: '100%', maxWidth: '450px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' };

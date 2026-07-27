@@ -33,8 +33,8 @@ export default function Login({ onLoginExitoso }) {
   };
 
   return (
-    <div style={{ width: '100vw', height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC', backgroundImage: 'radial-gradient(#E2E8F0 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
-      <div style={{ backgroundColor: '#FFFFFF', padding: '50px', borderRadius: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '400px', textAlign: 'center' }}>
+    <div style={{ width: '100%', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC', backgroundImage: 'radial-gradient(#E2E8F0 1px, transparent 1px)', backgroundSize: '20px 20px', padding: '20px', boxSizing: 'border-box', overflowY: 'auto' }}>
+      <div style={{ backgroundColor: '#FFFFFF', padding: 'clamp(28px, 8vw, 50px)', borderRadius: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '400px', textAlign: 'center' }}>
 
         <div style={{ backgroundColor: '#6366F1', width: '80px', height: '80px', borderRadius: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 20px auto', fontSize: '2.5rem', boxShadow: '0 10px 15px -3px rgba(99, 102, 241, 0.3)' }}>
           🍎

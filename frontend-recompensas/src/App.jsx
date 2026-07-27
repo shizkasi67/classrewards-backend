@@ -13,6 +13,7 @@ export default function App() {
   const [autenticada, setAutenticada] = useState(false);
   const [pantallaActual, setPantallaActual] = useState('dashboard');
   const [nombreProfesora, setNombreProfesora] = useState('Profesora');
+  const [menuAbierto, setMenuAbierto] = useState(false);
 
   useEffect(() => {
     // Mantener backend activo (evita cold starts en Render free tier)
@@ -65,6 +66,11 @@ export default function App() {
     // onAuthStateChange se encarga del resto
   };
 
+  const cambiarPantalla = (pantalla) => {
+    setPantallaActual(pantalla);
+    setMenuAbierto(false);
+  };
+
   // ==========================================
   // 1. PANTALLA DE BLOQUEO (LOGIN)
   // ==========================================
@@ -85,7 +91,7 @@ export default function App() {
       <DemoBanner />
 
       {/* MENÚ LATERAL (SIDEBAR) */}
-      <aside style={{ width: '280px', backgroundColor: '#1E293B', color: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxShadow: '4px 0 15px rgba(0,0,0,0.1)', zIndex: 10 }}>
+      <aside className={`app-sidebar${menuAbierto ? ' sidebar-open' : ''}`} style={{ width: '280px', backgroundColor: '#1E293B', color: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxShadow: '4px 0 15px rgba(0,0,0,0.1)', zIndex: 10 }}>
 
         {/* Logo y Título */}
         <div>
@@ -103,25 +109,25 @@ export default function App() {
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '0 15px' }}>
             <BotonNavegacion
               activo={pantallaActual === 'dashboard'}
-              onClick={() => setPantallaActual('dashboard')}
+              onClick={() => cambiarPantalla('dashboard')}
               icono="👨‍🎓"
               texto="Gestión de Alumnos"
             />
             <BotonNavegacion
               activo={pantallaActual === 'tienda'}
-              onClick={() => setPantallaActual('tienda')}
+              onClick={() => cambiarPantalla('tienda')}
               icono="🎁"
               texto="Tienda de Premios"
             />
             <BotonNavegacion
               activo={pantallaActual === 'pizarra'}
-              onClick={() => setPantallaActual('pizarra')}
+              onClick={() => cambiarPantalla('pizarra')}
               icono="🎯"
               texto="Modo Pizarra"
             />
             <BotonNavegacion
               activo={pantallaActual === 'actividades'}
-              onClick={() => setPantallaActual('actividades')}
+              onClick={() => cambiarPantalla('actividades')}
               icono="📝"
               texto="Actividades"
             />
@@ -151,15 +157,24 @@ export default function App() {
         </div>
       </aside>
 
+      {menuAbierto && <div className="sidebar-overlay" onClick={() => setMenuAbierto(false)} />}
+
       {/* ÁREA PRINCIPAL (Donde cambian las pantallas) */}
-      <main style={{ flex: 1, padding: 'clamp(20px, 4vw, 40px)', overflowY: 'auto' }}>
-        <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94A3B8', fontSize: '1rem' }}>Cargando...</div>}>
-          {pantallaActual === 'dashboard' && <Dashboard />}
-          {pantallaActual === 'tienda' && <Tienda />}
-          {pantallaActual === 'pizarra' && <Pizarra />}
-          {pantallaActual === 'actividades' && <Actividades />}
-        </Suspense>
-      </main>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
+        <header className="mobile-topbar">
+          <button className="hamburger-btn" onClick={() => setMenuAbierto(true)} aria-label="Abrir menú">☰</button>
+          <span style={{ fontWeight: '800', fontSize: '1.05rem' }}>Gestion de clases</span>
+        </header>
+
+        <main style={{ flex: 1, padding: 'clamp(20px, 4vw, 40px)', overflowY: 'auto' }}>
+          <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94A3B8', fontSize: '1rem' }}>Cargando...</div>}>
+            {pantallaActual === 'dashboard' && <Dashboard />}
+            {pantallaActual === 'tienda' && <Tienda />}
+            {pantallaActual === 'pizarra' && <Pizarra />}
+            {pantallaActual === 'actividades' && <Actividades />}
+          </Suspense>
+        </main>
+      </div>
 
     </div>
   );

@@ -294,8 +294,8 @@ export default function Dashboard() {
             {showHistorial && (
               <div style={{ ...modalStyle, maxWidth: '800px' }}>
                 <h2 style={modalTitleStyle}>Historial de Puntos</h2>
-                <div style={{ overflowY: 'auto', maxHeight: '60vh' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div style={{ overflowY: 'auto', overflowX: 'auto', maxHeight: '60vh' }}>
+                  <table style={{ width: '100%', minWidth: '480px', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ textAlign: 'left', borderBottom: '2px solid #F1F5F9', color: '#64748B' }}>
                         <th style={{ padding: '12px' }}>Fecha</th>
