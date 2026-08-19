@@ -31,10 +31,19 @@ jobs:
             --no-owner --no-acl \
             > "respaldo_${{ steps.fecha.outputs.hoy }}.sql"
 
-      - name: Guardar respaldo como artefacto
+      - name: Cifrar el respaldo (el repo es publico, el artefacto no debe ser legible)
+        run: |
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "${{ secrets.BACKUP_PASSPHRASE }}" \
+            --symmetric --cipher-algo AES256 \
+            -o "respaldo_${{ steps.fecha.outputs.hoy }}.sql.gpg" \
+            "respaldo_${{ steps.fecha.outputs.hoy }}.sql"
+          rm "respaldo_${{ steps.fecha.outputs.hoy }}.sql"
+
+      - name: Guardar respaldo cifrado como artefacto
         uses: actions/upload-artifact@v4
         with:
           name: respaldo-${{ steps.fecha.outputs.hoy }}
-          path: respaldo_*.sql
+          path: respaldo_*.sql.gpg
           retention-days: 30
           if-no-files-found: error
